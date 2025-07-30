@@ -8,6 +8,7 @@
 #include "llama-vocab.h"
 
 #include <map>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -516,6 +517,17 @@ struct llama_model {
 
     explicit llama_model(const struct llama_model_params & params);
     ~llama_model();
+
+    /// @brief Create backend buffers for all tensors
+    bool create_backend_buffers(std::size_t size_data,
+                                const std::map<ggml_backend_buffer_type_t, ggml_context *> & ctx_map,
+                                llama_model_loader & ml,
+                                bool use_mmap_buffer,
+                                bool use_mlock,
+                                int32_t n_gpu_layers,
+                                bool do_print_backend_buffers_info = true);
+
+    void print_backend_buffers_info(int32_t n_gpu_layers);
 
     void load_stats  (llama_model_loader & ml);
     void load_arch   (llama_model_loader & ml);
