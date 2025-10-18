@@ -62,6 +62,12 @@ VKAPI_ATTR void VKAPI_CALL vkResetQueryPool(
 
 #include "ggml-vulkan-shaders.hpp"
 
+#if defined(GGML_VULKAN_RENDERDOC)
+#include "renderdoc_app.h"
+
+RENDERDOC_API_1_6_0 *rdoc_api = NULL;
+#endif
+
 // remove this once it's more widely available in the SDK
 #if !defined(VK_KHR_shader_bfloat16)
 
@@ -12129,6 +12135,11 @@ static bool ggml_backend_buffer_is_vk(ggml_backend_buffer_t buffer) {
 }
 
 static void ggml_backend_vk_buffer_free_buffer(ggml_backend_buffer_t buffer) {
+#if defined(GGML_VULKAN_RENDERDOC)
+    if (rdoc_api) {
+        rdoc_api->EndFrameCapture(RENDERDOC_DEVICEPOINTER_FROM_VKINSTANCE(static_cast<VkInstance>(vk_instance.instance)), NULL);
+    }
+#endif
     VK_LOG_MEMORY("ggml_backend_vk_buffer_free_buffer()");
     ggml_backend_vk_buffer_context * ctx = (ggml_backend_vk_buffer_context *)buffer->context;
     ggml_vk_destroy_buffer(ctx->dev_buffer);
@@ -12218,6 +12229,11 @@ static const char * ggml_backend_vk_buffer_type_name(ggml_backend_buffer_type_t 
 }
 
 static ggml_backend_buffer_t ggml_backend_vk_buffer_type_alloc_buffer(ggml_backend_buffer_type_t buft, size_t size) {
+#if defined(GGML_VULKAN_RENDERDOC)
+    if (rdoc_api) {
+        rdoc_api->StartFrameCapture(RENDERDOC_DEVICEPOINTER_FROM_VKINSTANCE(static_cast<VkInstance>(vk_instance.instance)), NULL);
+    }
+#endif
     VK_LOG_MEMORY("ggml_backend_vk_buffer_type_alloc_buffer(" << size << ")");
     ggml_backend_vk_buffer_type_context * ctx = (ggml_backend_vk_buffer_type_context *) buft->context;
 
@@ -12908,6 +12924,16 @@ ggml_backend_t ggml_backend_vk_init(size_t dev_num) {
 
     ggml_backend_vk_context * ctx = new ggml_backend_vk_context;
     ggml_vk_init(ctx, dev_num);
+
+#if defined(GGML_VULKAN_RENDERDOC)
+    if(void *mod = dlopen("librenderdoc.so", RTLD_NOW | RTLD_NOLOAD))
+    {
+        pRENDERDOC_GetAPI RENDERDOC_GetAPI = (pRENDERDOC_GetAPI)dlsym(mod, "RENDERDOC_GetAPI");
+        int ret = RENDERDOC_GetAPI(eRENDERDOC_API_Version_1_6_0, (void **)&rdoc_api);
+        assert(ret == 1);
+        assert(rdoc_api);
+    }
+#endif
 
     ggml_backend_t vk_backend = new ggml_backend {
         /* .guid    = */ ggml_backend_vk_guid(),
