@@ -68,15 +68,15 @@ public:
         name = std::string(tensor->name);
         if (transpose) {
             dimensions = {
-                    1, // batch dimension
-                    1, // batch dimension
+                    static_cast<uint32_t>(tensor->ne[3]), // batch dimension
+                    static_cast<uint32_t>(tensor->ne[2]), // batch dimension
                     static_cast<uint32_t>(tensor->ne[1]),
                     static_cast<uint32_t>(tensor->ne[0]),
             };
         } else {
             dimensions = {
-                    1, // batch dimension
-                    1, // batch dimension
+                    static_cast<uint32_t>(tensor->ne[3]), // batch dimension
+                    static_cast<uint32_t>(tensor->ne[2]), // batch dimension
                     static_cast<uint32_t>(tensor->ne[0]),
                     static_cast<uint32_t>(tensor->ne[1]),
             };
@@ -222,23 +222,27 @@ public:
 
             for (int64_t i00 = 0; i00 < tensor->ne[0]; i00++) {
                 for (int64_t i01 = 0; i01 < tensor->ne[1]; i01++) {
-                    size_t index_transposed = i00 * tensor->nb[0] + i01 * tensor->nb[1];
-                    if (tensor->type == GGML_TYPE_F32) {
-                        if (op_type.type == ANEURALNETWORKS_TENSOR_FLOAT32) {
-                            reinterpret_cast<float*>(map)[index_linear] = *reinterpret_cast<const float *>(&data[index_transposed]);
-                        } else if (op_type.type == ANEURALNETWORKS_TENSOR_FLOAT16) {
-                            reinterpret_cast<_Float16*>(map)[index_linear] = static_cast<_Float16>(*reinterpret_cast<const float *>(&data[index_transposed]));
-                        } else if (op_type.type == ANEURALNETWORKS_TENSOR_QUANT8_ASYMM_SIGNED) {
-                            float unquantized = *reinterpret_cast<const float *>(&data[index_transposed]);
-                            reinterpret_cast<int8_t*>(map)[index_linear] = round_clamp_to_int8(unquantized * inv_scale);
-                        } else {
-                            // TODO: Not supported
-                            assert(false);
+                    for (int64_t i02 = 0; i02 < tensor->ne[2]; i02++) {
+                        for (int64_t i03 = 0; i03 < tensor->ne[3]; i03++) {
+                            size_t index_transposed = i00 * tensor->nb[0] + i01 * tensor->nb[1];
+                            if (tensor->type == GGML_TYPE_F32) {
+                                if (op_type.type == ANEURALNETWORKS_TENSOR_FLOAT32) {
+                                    reinterpret_cast<float*>(map)[index_linear] = *reinterpret_cast<const float *>(&data[index_transposed]);
+                                } else if (op_type.type == ANEURALNETWORKS_TENSOR_FLOAT16) {
+                                    reinterpret_cast<_Float16*>(map)[index_linear] = static_cast<_Float16>(*reinterpret_cast<const float *>(&data[index_transposed]));
+                                } else if (op_type.type == ANEURALNETWORKS_TENSOR_QUANT8_ASYMM_SIGNED) {
+                                    float unquantized = *reinterpret_cast<const float *>(&data[index_transposed]);
+                                    reinterpret_cast<int8_t*>(map)[index_linear] = round_clamp_to_int8(unquantized * inv_scale);
+                                } else {
+                                    // TODO: Not supported
+                                    assert(false);
+                                }
+                            } else if (tensor->type == GGML_TYPE_F16) {
+                                reinterpret_cast<_Float16 *>(map)[index_linear] = *reinterpret_cast<const _Float16 *>(&data[index_transposed]);
+                            }
+                            index_linear++;
                         }
-                    } else if (tensor->type == GGML_TYPE_F16) {
-                        reinterpret_cast<_Float16*>(map)[index_linear] = *reinterpret_cast<const _Float16 *>(&data[index_transposed]);
                     }
-                    index_linear++;
                 }
             }
         }
@@ -276,15 +280,22 @@ public:
             }
         } else {
             auto *dst_data = reinterpret_cast<uint8_t*>(tensor->data);
-            for (int64_t i00 = 0; i00 < tensor->ne[0]; i00++) {
-                for (int64_t i01 = 0; i01 < tensor->ne[1]; i01++) {
-                    size_t index_transposed = i00 * tensor->nb[0] + i01 * tensor->nb[1];
-                    if (op_type.type == ANEURALNETWORKS_TENSOR_FLOAT32) {
-                        *reinterpret_cast<float *>(&dst_data[index_transposed]) = reinterpret_cast<float*>(map)[index_linear];
-                    } else if (op_type.type == ANEURALNETWORKS_TENSOR_FLOAT16) {
-                        *reinterpret_cast<float *>(&dst_data[index_transposed]) = reinterpret_cast<_Float16*>(map)[index_linear];
+            for (int64_t i03 = 0; i03 < tensor->ne[3]; i03++) {
+                for (int64_t i02 = 0; i02 < tensor->ne[2]; i02++) {
+                    for (int64_t i00 = 0; i00 < tensor->ne[0]; i00++) {
+                        for (int64_t i01 = 0; i01 < tensor->ne[1]; i01++) {
+                            size_t index_transposed = i00 * tensor->nb[0]
+                                                    + i01 * tensor->nb[1]
+                                                    + i02 * tensor->nb[2]
+                                                    + i03 * tensor->nb[3];
+                            if (op_type.type == ANEURALNETWORKS_TENSOR_FLOAT32) {
+                                *reinterpret_cast<float *>(&dst_data[index_transposed]) = reinterpret_cast<float *>(map)[index_linear];
+                            } else if (op_type.type == ANEURALNETWORKS_TENSOR_FLOAT16) {
+                                *reinterpret_cast<float *>(&dst_data[index_transposed]) = reinterpret_cast<_Float16 *>(map)[index_linear];
+                            }
+                            index_linear++;
+                        }
                     }
-                    index_linear++;
                 }
             }
         }
@@ -518,47 +529,53 @@ static void print_ggml_f32_tensor(const ggml_tensor * tensor, bool shorten=true)
     std::stringstream ss;
 
     constexpr uint32_t short_print_count = 4;
+    auto *data_raw = reinterpret_cast<uint8_t*>(tensor->data);
 
-    auto *data = reinterpret_cast<float*>(tensor->data);
-
-    GGML_LOG_ERROR("🍄 ggml f32 %ld x %ld %s:", tensor->ne[0], tensor->ne[1], tensor->name);
+    GGML_LOG_ERROR("🍄 ggml f32 %ld x %ld x %ld x %ld %s:",
+                   tensor->ne[0], tensor->ne[1], tensor->ne[2], tensor->ne[3], tensor->name);
 
     if (tensor->type != GGML_TYPE_F32) {
         GGML_LOG_ERROR("Wrong type %s", ggml_type_name(tensor->type));
         return;
     }
 
-    for (int64_t i01 = 0; i01 < tensor->ne[1]; i01++) {
-        if (shorten && i01 >= short_print_count && i01 < tensor->ne[1] - short_print_count) {
-            if (i01 == short_print_count) {
-                GGML_LOG_INFO("[...],");
-            }
-            continue;
-        }
-
-        for (int64_t i00 = 0; i00 < tensor->ne[0]; i00++) {
-            if (shorten && i00 >= short_print_count && i00 < tensor->ne[0] - short_print_count) {
-                if (i00 == short_print_count) {
-                    ss << "..., ";
+    for (int64_t i03 = 0; i03 < tensor->ne[3]; i03++) {
+        for (int64_t i02 = 0; i02 < tensor->ne[2]; i02++) {
+            for (int64_t i01 = 0; i01 < tensor->ne[1]; i01++) {
+                if (shorten && i01 >= short_print_count &&
+                    i01 < tensor->ne[1] - short_print_count) {
+                    if (i01 == short_print_count) {
+                        GGML_LOG_INFO("[...],");
+                    }
+                    continue;
                 }
-                continue;
-            }
-//            size_t index = i01 * tensor->ne[1] + i00;
-//            ss << data[index];
 
-            const void *x = (char *) tensor->data
+                for (int64_t i00 = 0; i00 < tensor->ne[0]; i00++) {
+                    if (shorten && i00 >= short_print_count &&
+                        i00 < tensor->ne[0] - short_print_count) {
+                        if (i00 == short_print_count) {
+                            ss << "..., ";
+                        }
+                        continue;
+                    }
+                    const void *raw_ptr = data_raw
                             + i00 * tensor->nb[0]
-                            + i01 * tensor->nb[1];
-            const auto *the_float = static_cast<const float*>(x);
-            ss << *the_float;
+                            + i01 * tensor->nb[1]
+                            + i02 * tensor->nb[2]
+                            + i03 * tensor->nb[3];
+                    const auto *float_ptr = static_cast<const float *>(raw_ptr);
+                    ss << *float_ptr;
 
-            if (i00 < tensor->ne[0] - 1) {
-                ss << ", ";
+                    if (i00 < tensor->ne[0] - 1) {
+                        ss << ", ";
+                    }
+                }
+                GGML_LOG_INFO("[%s],", ss.str().c_str());
+                ss.str("");
+                ss.clear();
             }
+
         }
-        GGML_LOG_INFO("[%s],", ss.str().c_str());
-        ss.str("");
-        ss.clear();
     }
 }
 
@@ -1273,11 +1290,13 @@ static bool ggml_backend_nnapi_device_supports_op(ggml_backend_dev_t dev, const 
                     return false;
             }
 
-            // TODO: Implement batching
-            if (src0->ne[2] != 1 ||
-                src0->ne[3] != 1 ||
-                src1->ne[2] != 1 ||
-                src1->ne[3] != 1) {
+            // TODO: Add support for repeat
+            if (src0->ne[2] != src1->ne[2]) {
+                return false;
+            }
+
+            // TODO: Figure out batching for q8
+            if ((src0->ne[2] > 1 || src0->ne[3] > 1) && src0->type == GGML_TYPE_Q8_0) {
                 return false;
             }
 
@@ -1291,14 +1310,14 @@ static bool ggml_backend_nnapi_device_supports_op(ggml_backend_dev_t dev, const 
 
             // TODO: Implement block partitioning
             constexpr uint32_t max_nels_in = 3200 * 3200;
-            if (src0->ne[0] * src0->ne[0] > max_nels_in ||
-                src1->ne[0] * src1->ne[1] > max_nels_in) {
+            if (ggml_nelements(src0) > max_nels_in ||
+                ggml_nelements(src1) > max_nels_in) {
                 return false;
             }
 
             // TODO: Figure out max output
             constexpr uint32_t max_nels_out = 4096 * 4096;
-            if (op->ne[0] * op->ne[1] > max_nels_out) {
+            if (ggml_nelements(op) > max_nels_out) {
                 return false;
             }
 
