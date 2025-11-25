@@ -198,7 +198,7 @@ public:
             }
         } else if (is_transposed && tensor->type == GGML_TYPE_F32) {
             const uint64_t n_elements = ggml_nelements(tensor);
-            const float * src_data = reinterpret_cast<const float *>(tensor->data);
+            const auto * src_data = reinterpret_cast<const float *>(tensor->data);
 
             if (op_type.type == ANEURALNETWORKS_TENSOR_QUANT8_ASYMM_SIGNED) {
                 auto * dst_data = reinterpret_cast<int8_t*>(map);
@@ -948,6 +948,7 @@ static float tensor_get_max_scale(const ggml_tensor * tensor) {
         default:
             GGML_LOG_ERROR("Unsupported type %s", ggml_type_name(tensor->type));
             assert(false);
+            return 1.0f;
     }
 }
 
