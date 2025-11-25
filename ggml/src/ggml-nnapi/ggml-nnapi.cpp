@@ -57,16 +57,16 @@ public:
     int fd = -1;
     int64_t nels = 0;
     size_t size = 0;
-    bool flipped_dimensions = false;
+    bool is_transposed = false;
     std::string name;
 
     nnapi_tensor() = default;
 
     nnapi_tensor(const ggml_tensor * tensor, ggml_type pipeline_type,
-                 bool flip_dimensions=false, bool is_output=false) {
-        flipped_dimensions = flip_dimensions;
+                 bool transpose=false, bool is_output=false) {
+        is_transposed = transpose;
         name = std::string(tensor->name);
-        if (flip_dimensions) {
+        if (transpose) {
             dimensions = {
                     1, // batch dimension
                     1, // batch dimension
@@ -196,7 +196,7 @@ public:
                     map_int8[index_transposed] = round_clamp_to_int8(dequantized * inv_scale);
                 }
             }
-        } else if (flipped_dimensions && tensor->type == GGML_TYPE_F32) {
+        } else if (is_transposed && tensor->type == GGML_TYPE_F32) {
             const uint64_t n_elements = ggml_nelements(tensor);
             const float * src_data = reinterpret_cast<const float *>(tensor->data);
 
@@ -299,7 +299,7 @@ static bool build_mat_mul_model(ANeuralNetworksModel** model,
                                 ANeuralNetworksOperandType *in_tensor0_type,
                                 ANeuralNetworksOperandType *in_tensor1_type,
                                 ANeuralNetworksOperandType *out_tensor_type,
-                                bool adj_y_value);
+                                bool transpose_b);
 static bool compile_model(ANeuralNetworksModel* model, ANeuralNetworksCompilation** compilation);
 
 struct nnapi_pipeline {
@@ -636,7 +636,7 @@ static void print_nnapi_q80_tensor(const nnapi_tensor * tensor, bool print_quant
 
     uint32_t N = 0;
     uint32_t M = 0;
-    if (tensor->flipped_dimensions) {
+    if (tensor->is_transposed) {
         N = tensor->dimensions[3];
         M = tensor->dimensions[2];
     } else {
