@@ -131,6 +131,8 @@ public:
                 const size_t nbytes = ggml_nbytes(tensor);
                 const size_t nblocks = nbytes / type_size;
 
+                const float inv_scale = 1.0f / op_type.scale;
+
                 size_t index_linear = 0;
                 for (size_t current_block = 0; current_block < nblocks; current_block++) {
                     const size_t offset = current_block * type_size;
@@ -142,7 +144,7 @@ public:
 
                     for (int8_t q : block->qs) {
                         float dequantized = static_cast<float>(q) * ggml_block_scale;
-                        auto requantized = static_cast<int8_t>(dequantized / op_type.scale);
+                        auto requantized = static_cast<int8_t>(dequantized * inv_scale);
                         nnapi_target_int8[index_linear] = requantized;
                         index_linear++;
                     }
@@ -176,6 +178,8 @@ public:
             const size_t nblocks = nbytes / type_size;
             const size_t blocks_per_width = tensor->ne[0] / QK8_0;
 
+            const float inv_scale = 1.0f / op_type.scale;
+
             for (size_t current_block = 0; current_block < nblocks; current_block++) {
                 const size_t offset = current_block * type_size;
                 const uint8_t *block_start = data + offset;
@@ -186,7 +190,7 @@ public:
                     size_t current_column = (current_block % blocks_per_width) * blck_size + j;
                     size_t index_transposed = current_column * tensor->ne[1] + current_row;
                     float dequantized = static_cast<float>(block->qs[j])*block_scale;
-                    map_int8[index_transposed] = static_cast<int8_t>(dequantized / op_type.scale);
+                    map_int8[index_transposed] = static_cast<int8_t>(dequantized * inv_scale);
                 }
             }
         } else if (flipped_dimensions && tensor->type == GGML_TYPE_F32) {
@@ -210,6 +214,11 @@ public:
                 }
             }
         }  else {
+            float inv_scale = 0.0f;
+            if (op_type.type == ANEURALNETWORKS_TENSOR_QUANT8_ASYMM_SIGNED) {
+                inv_scale = 1.0f / op_type.scale;
+            }
+
             for (int64_t i00 = 0; i00 < tensor->ne[0]; i00++) {
                 for (int64_t i01 = 0; i01 < tensor->ne[1]; i01++) {
                     size_t index_transposed = i00 * tensor->nb[0] + i01 * tensor->nb[1];
@@ -220,7 +229,7 @@ public:
                             reinterpret_cast<_Float16*>(map)[index_linear] = static_cast<_Float16>(*reinterpret_cast<const float *>(&data[index_transposed]));
                         } else if (op_type.type == ANEURALNETWORKS_TENSOR_QUANT8_ASYMM_SIGNED) {
                             float unquantized = *reinterpret_cast<const float *>(&data[index_transposed]);
-                            reinterpret_cast<int8_t*>(map)[index_linear] = static_cast<int8_t>(unquantized / op_type.scale);
+                            reinterpret_cast<int8_t*>(map)[index_linear] = static_cast<int8_t>(unquantized * inv_scale);
                         } else {
                             // TODO: Not supported
                             assert(false);
