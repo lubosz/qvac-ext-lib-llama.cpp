@@ -45,6 +45,10 @@ static std::pair<int, ANeuralNetworksMemory*> create_shared_memory(
 
 static const char *operand_code_str (OperandCode code);
 
+static int8_t round_clamp_to_int8(float val) {
+    return static_cast<int8_t>(std::clamp(std::round(val), -128.0f, 127.0f));
+}
+
 class nnapi_tensor {
 public:
     std::vector<uint32_t> dimensions;
@@ -144,8 +148,7 @@ public:
 
                     for (int8_t q : block->qs) {
                         float dequantized = static_cast<float>(q) * ggml_block_scale;
-                        auto requantized = static_cast<int8_t>(dequantized * inv_scale);
-                        nnapi_target_int8[index_linear] = requantized;
+                        nnapi_target_int8[index_linear] = round_clamp_to_int8(dequantized * inv_scale);
                         index_linear++;
                     }
                 }
@@ -189,8 +192,8 @@ public:
                     size_t current_row = current_block / blocks_per_width;
                     size_t current_column = (current_block % blocks_per_width) * blck_size + j;
                     size_t index_transposed = current_column * tensor->ne[1] + current_row;
-                    float dequantized = static_cast<float>(block->qs[j])*block_scale;
-                    map_int8[index_transposed] = static_cast<int8_t>(dequantized * inv_scale);
+                    float dequantized = static_cast<float>(block->qs[j]) * block_scale;
+                    map_int8[index_transposed] = round_clamp_to_int8(dequantized * inv_scale);
                 }
             }
         } else if (flipped_dimensions && tensor->type == GGML_TYPE_F32) {
@@ -200,10 +203,8 @@ public:
             if (op_type.type == ANEURALNETWORKS_TENSOR_QUANT8_ASYMM_SIGNED) {
                 auto * dst_data = reinterpret_cast<int8_t*>(map);
                 const float inv_scale = 1.0f / op_type.scale;
-
                 for (uint64_t i = 0; i < n_elements; ++i) {
-                    float val = src_data[i] * inv_scale;
-                    dst_data[i] = static_cast<int8_t>(std::clamp(std::round(val), -128.0f, 127.0f));
+                    dst_data[i] = round_clamp_to_int8(src_data[i] * inv_scale);
                 }
             } else if (op_type.type == ANEURALNETWORKS_TENSOR_FLOAT32) {
                  memcpy(map, src_data, size);
@@ -229,7 +230,7 @@ public:
                             reinterpret_cast<_Float16*>(map)[index_linear] = static_cast<_Float16>(*reinterpret_cast<const float *>(&data[index_transposed]));
                         } else if (op_type.type == ANEURALNETWORKS_TENSOR_QUANT8_ASYMM_SIGNED) {
                             float unquantized = *reinterpret_cast<const float *>(&data[index_transposed]);
-                            reinterpret_cast<int8_t*>(map)[index_linear] = static_cast<int8_t>(unquantized * inv_scale);
+                            reinterpret_cast<int8_t*>(map)[index_linear] = round_clamp_to_int8(unquantized * inv_scale);
                         } else {
                             // TODO: Not supported
                             assert(false);
