@@ -126,7 +126,6 @@ public:
                 void* nnapi_map = mmap(nullptr, size, PROT_WRITE, MAP_SHARED, fd, 0);
                 auto *nnapi_target_int8 = reinterpret_cast<int8_t*>(nnapi_map);
                 constexpr size_t type_size = sizeof(block_q8_0);
-                constexpr size_t blck_size = QK8_0;
                 const size_t nbytes = ggml_nbytes(tensor);
                 const size_t nblocks = nbytes / type_size;
 
