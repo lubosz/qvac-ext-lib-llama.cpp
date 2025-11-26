@@ -51,7 +51,7 @@ static int8_t round_clamp_to_int8(float val) {
 
 class nnapi_tensor {
 public:
-    std::vector<uint32_t> dimensions;
+    std::vector<uint32_t> dimensions = std::vector<uint32_t>(4);
     ANeuralNetworksOperandType op_type = {};
     ANeuralNetworksMemory* memory = nullptr;
     int fd = -1;
@@ -66,25 +66,20 @@ public:
                  bool transpose=false, bool is_output=false) {
         is_transposed = transpose;
         name = std::string(tensor->name);
+
+        dimensions[0] = static_cast<uint32_t>(tensor->ne[3]); // batch dimension
+        dimensions[1] = static_cast<uint32_t>(tensor->ne[2]); // batch dimension
         if (transpose) {
-            dimensions = {
-                    static_cast<uint32_t>(tensor->ne[3]), // batch dimension
-                    static_cast<uint32_t>(tensor->ne[2]), // batch dimension
-                    static_cast<uint32_t>(tensor->ne[1]),
-                    static_cast<uint32_t>(tensor->ne[0]),
-            };
+            dimensions[2] = static_cast<uint32_t>(tensor->ne[1]);
+            dimensions[3] = static_cast<uint32_t>(tensor->ne[0]);
         } else {
-            dimensions = {
-                    static_cast<uint32_t>(tensor->ne[3]), // batch dimension
-                    static_cast<uint32_t>(tensor->ne[2]), // batch dimension
-                    static_cast<uint32_t>(tensor->ne[0]),
-                    static_cast<uint32_t>(tensor->ne[1]),
-            };
+            dimensions[2] = static_cast<uint32_t>(tensor->ne[0]);
+            dimensions[3] = static_cast<uint32_t>(tensor->ne[1]);
         }
 
         op_type = {
             .type = ggml_to_nnapi_type(pipeline_type),
-            .dimensionCount = static_cast<uint32_t>(dimensions.size()),
+            .dimensionCount = 4,
             .dimensions = dimensions.data(),
             .scale = 0.0f,
             .zeroPoint = 0,
