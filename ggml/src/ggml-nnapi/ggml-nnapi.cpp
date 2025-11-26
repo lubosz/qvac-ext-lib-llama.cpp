@@ -380,6 +380,7 @@ struct nnapi_pipeline {
 
 struct ggml_backend_nnapi_context {
     std::vector<ANeuralNetworksDevice*> devices;
+    std::vector<ANeuralNetworksDevice*> npus;
 
     std::map<std::tuple<uint32_t, // N
                         uint32_t, // K
@@ -439,18 +440,13 @@ operand_code_str (OperandCode code)
     }
 }
 
-static void print_runtime_infos(ggml_backend_nnapi_context * ctx) {
-    auto runtime_feature_level = static_cast<FeatureLevelCode>(ANeuralNetworks_getRuntimeFeatureLevel());
-    GGML_LOG_INFO("Runtime feature level: %s", feature_leveL_code_str(runtime_feature_level));
-
+static void enumerate_devices(ggml_backend_nnapi_context * ctx) {
     uint32_t num_devices = 0;
     int ret = ANeuralNetworks_getDeviceCount(&num_devices);
     if (ret != ANEURALNETWORKS_NO_ERROR) {
         GGML_LOG_ERROR("Failed to get device count.");
         return;
     }
-
-    GGML_LOG_INFO("Have %d devices:", num_devices);
 
     for (uint32_t i = 0; i < num_devices; i++) {
         ANeuralNetworksDevice* device;
@@ -461,9 +457,28 @@ static void print_runtime_infos(ggml_backend_nnapi_context * ctx) {
         }
 
         ctx->devices.push_back(device);
+        int32_t device_type_int;
+        ret = ANeuralNetworksDevice_getType(device, &device_type_int);
+        if (ret != ANEURALNETWORKS_NO_ERROR) {
+            GGML_LOG_ERROR("Failed to ANeuralNetworksDevice_getType for device %d", i);
+            return;
+        }
+        auto device_type = static_cast<DeviceTypeCode>(device_type_int);
+        if (device_type == ANEURALNETWORKS_DEVICE_ACCELERATOR) {
+            ctx->npus.push_back(device);
+        }
+    }
+}
 
+static void print_runtime_infos(ggml_backend_nnapi_context * ctx) {
+    auto runtime_feature_level = static_cast<FeatureLevelCode>(ANeuralNetworks_getRuntimeFeatureLevel());
+    GGML_LOG_INFO("Runtime feature level: %s", feature_leveL_code_str(runtime_feature_level));
+    GGML_LOG_INFO("Have %ld devices:", ctx->devices.size());
+
+    for (uint32_t i = 0; i < ctx->devices.size(); i++) {
+        ANeuralNetworksDevice* device = ctx->devices[i];
         int64_t device_feature_level_int;
-        ret = ANeuralNetworksDevice_getFeatureLevel(device, &device_feature_level_int);
+        int ret = ANeuralNetworksDevice_getFeatureLevel(device, &device_feature_level_int);
         if (ret != ANEURALNETWORKS_NO_ERROR) {
             GGML_LOG_ERROR("Failed to ANeuralNetworksDevice_getFeatureLevel for device %d", i);
             return;
