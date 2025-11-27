@@ -52,7 +52,8 @@ static int8_t round_clamp_to_int8(float val) {
 
 class nnapi_tensor {
 public:
-    std::vector<uint32_t> dimensions = std::vector<uint32_t>(4);
+//    std::vector<uint32_t> dimensions = std::vector<uint32_t>(4);
+    std::vector<uint32_t> dimensions = std::vector<uint32_t>(2);
     ANeuralNetworksOperandType op_type = {};
     ANeuralNetworksMemory* memory = nullptr;
     int fd = -1;
@@ -68,19 +69,27 @@ public:
         is_transposed = transpose;
         name = std::string(tensor->name);
 
-        dimensions[0] = static_cast<uint32_t>(tensor->ne[3]); // batch dimension
-        dimensions[1] = static_cast<uint32_t>(tensor->ne[2]); // batch dimension
+//        dimensions[0] = static_cast<uint32_t>(tensor->ne[3]); // batch dimension
+//        dimensions[1] = static_cast<uint32_t>(tensor->ne[2]); // batch dimension
+//        if (transpose) {
+//            dimensions[2] = static_cast<uint32_t>(tensor->ne[1]);
+//            dimensions[3] = static_cast<uint32_t>(tensor->ne[0]);
+//        } else {
+//            dimensions[2] = static_cast<uint32_t>(tensor->ne[0]);
+//            dimensions[3] = static_cast<uint32_t>(tensor->ne[1]);
+//        }
+
         if (transpose) {
-            dimensions[2] = static_cast<uint32_t>(tensor->ne[1]);
-            dimensions[3] = static_cast<uint32_t>(tensor->ne[0]);
+            dimensions[0] = static_cast<uint32_t>(tensor->ne[1]);
+            dimensions[1] = static_cast<uint32_t>(tensor->ne[0]);
         } else {
-            dimensions[2] = static_cast<uint32_t>(tensor->ne[0]);
-            dimensions[3] = static_cast<uint32_t>(tensor->ne[1]);
+            dimensions[0] = static_cast<uint32_t>(tensor->ne[0]);
+            dimensions[1] = static_cast<uint32_t>(tensor->ne[1]);
         }
 
         op_type = {
             .type = ggml_to_nnapi_type(pipeline_type),
-            .dimensionCount = 4,
+            .dimensionCount = 2,
             .dimensions = dimensions.data(),
             .scale = 0.0f,
             .zeroPoint = 0,
@@ -306,6 +315,12 @@ static bool build_mat_mul_model(ANeuralNetworksModel** model,
                                 ANeuralNetworksOperandType *in_tensor1_type,
                                 ANeuralNetworksOperandType *out_tensor_type,
                                 bool transpose_b);
+static bool build_fully_connected_model(ANeuralNetworksModel** model,
+                                        ANeuralNetworksOperandType *input_matrix_type,
+                                        ANeuralNetworksOperandType *input_weights_type,
+                                        ANeuralNetworksOperandType *out_vector_type,
+                                        uint32_t num_units);
+
 static bool compile_model(ANeuralNetworksDevice* device, ANeuralNetworksModel* model,
                           ANeuralNetworksCompilation** compilation, bool use_fallback=true);
 
@@ -352,16 +367,30 @@ struct nnapi_pipeline {
 //                       dst.dimensions[2], dst.dimensions[3], dst.nels, dst.size,
 //                       dst.op_type.scale);
 
-        if (!build_mat_mul_model(&model,
-                                 &src0.op_type,
-                                 &src1.op_type,
-                                 &dst.op_type,
-                                 transpose_src1)) {
-            GGML_LOG_ERROR("Failed to build the mat mul model");
-            return;
+        const int64_t n = b->ne[1];
+        if (n > 1) {
+            if (!build_mat_mul_model(&model,
+                                     &src0.op_type,
+                                     &src1.op_type,
+                                     &dst.op_type,
+                                     transpose_src1)) {
+                GGML_LOG_ERROR("Failed to build the mat mul model");
+                return;
+            }
+        } else {
+            if (!build_fully_connected_model(&model,
+                                     &src0.op_type,
+                                     &src1.op_type,
+                                     &dst.op_type,
+                                     1)) {
+                GGML_LOG_ERROR("Failed to build the mat mul model");
+                return;
+            }
         }
 
-        if (!compile_model(device, model, &compilation)) {
+
+
+        if (!compile_model(device, model, &compilation, true)) {
             GGML_LOG_ERROR("Failed to compile model.");
             return;
         }
@@ -436,6 +465,7 @@ operand_code_str (OperandCode code)
     {
         ENUM_TO_STR(ANEURALNETWORKS_TENSOR_FLOAT16);
         ENUM_TO_STR(ANEURALNETWORKS_TENSOR_FLOAT32);
+        ENUM_TO_STR(ANEURALNETWORKS_TENSOR_QUANT8_ASYMM);
         ENUM_TO_STR(ANEURALNETWORKS_TENSOR_QUANT8_ASYMM_SIGNED);
         ENUM_TO_STR(ANEURALNETWORKS_TENSOR_INT32);
         default:
@@ -841,6 +871,166 @@ static bool build_mat_mul_model(ANeuralNetworksModel** model,
     return true;
 }
 
+static bool build_fully_connected_model(ANeuralNetworksModel** model,
+                                        ANeuralNetworksOperandType *input_matrix_type,
+                                        ANeuralNetworksOperandType *input_weights_type,
+                                        ANeuralNetworksOperandType *out_vector_type,
+                                        uint32_t num_units) {
+    int ret = ANeuralNetworksModel_create(model);
+    if (ret != ANEURALNETWORKS_NO_ERROR) {
+        GGML_LOG_ERROR("ANeuralNetworksModel_create failed");
+        return false;
+    }
+
+    uint32_t op_idx = 0;
+
+    ret = ANeuralNetworksModel_addOperand(*model, input_matrix_type);
+    uint32_t input_matrix = op_idx++;
+    if (ret != ANEURALNETWORKS_NO_ERROR) {
+        GGML_LOG_ERROR("ANeuralNetworksModel_addOperand failed for operand (%d)",
+                       input_matrix);
+        return false;
+    }
+
+
+    ret = ANeuralNetworksModel_addOperand(*model, input_weights_type);
+    uint32_t input_weights = op_idx++;
+    if (ret != ANEURALNETWORKS_NO_ERROR) {
+        GGML_LOG_ERROR("ANeuralNetworksModel_addOperand failed for operand (%d)",
+                       input_weights);
+        return false;
+    }
+
+    std::vector<uint32_t> input_bias_dimensions = {
+            num_units
+    };
+    ANeuralNetworksOperandType input_bias_type {
+            .type = input_matrix_type->type,
+            .dimensionCount = static_cast<uint32_t>(input_bias_dimensions.size()),
+            .dimensions = input_bias_dimensions.data(),
+            .scale = 0.0f,
+            .zeroPoint = 0,
+    };
+
+    if (input_matrix_type->type == ANEURALNETWORKS_TENSOR_QUANT8_ASYMM ||
+        input_matrix_type->type == ANEURALNETWORKS_TENSOR_QUANT8_ASYMM_SIGNED) {
+        input_bias_type.type = ANEURALNETWORKS_TENSOR_INT32;
+    }
+
+    ret = ANeuralNetworksModel_addOperand(*model, &input_bias_type);
+    uint32_t input_bias = op_idx++;
+    if (ret != ANEURALNETWORKS_NO_ERROR) {
+        GGML_LOG_ERROR("ANeuralNetworksModel_addOperand failed for operand (%d)", input_bias);
+        return false;
+    }
+
+    // constant bias
+
+    switch (input_bias_type.type) {
+        case ANEURALNETWORKS_TENSOR_FLOAT32: {
+            std::vector<float> input_bias_values(num_units, 0.0f);
+            ret = ANeuralNetworksModel_setOperandValue(
+                    *model, (int32_t) input_bias, input_bias_values.data(),
+                    sizeof(float) * num_units);
+            break;
+        }
+        case ANEURALNETWORKS_TENSOR_FLOAT16: {
+            std::vector<float16_t> input_bias_values(num_units, 0.0f);
+            ret = ANeuralNetworksModel_setOperandValue(
+                    *model, (int32_t) input_bias, input_bias_values.data(),
+                    sizeof(float16_t) * num_units);
+            break;
+        }
+        case ANEURALNETWORKS_TENSOR_INT32: {
+            std::vector<int32_t> input_bias_values(num_units, 0);
+            ret = ANeuralNetworksModel_setOperandValue(
+                    *model, (int32_t) input_bias, input_bias_values.data(),
+                    sizeof(int32_t) * num_units);
+            break;
+        }
+        default:
+            GGML_LOG_ERROR("Unsupported bias type.");
+    }
+
+    if (ret != ANEURALNETWORKS_NO_ERROR) {
+        GGML_LOG_ERROR("ANeuralNetworksModel_setOperandValue failed for operand (%d)", input_bias);
+        return false;
+    }
+
+    ANeuralNetworksOperandType input_fuse_type = {
+            .type = ANEURALNETWORKS_INT32,
+            .dimensionCount = 0,
+            .dimensions = nullptr,
+            .scale = 0.0f,
+            .zeroPoint = 0,
+    };
+
+    ret = ANeuralNetworksModel_addOperand(*model, &input_fuse_type);
+    uint32_t input_fuse = op_idx++;
+    if (ret != ANEURALNETWORKS_NO_ERROR) {
+        GGML_LOG_ERROR("ANeuralNetworksModel_addOperand failed for operand (%d)", input_fuse);
+        return false;
+    }
+
+    int32_t input_fuse_value = ANEURALNETWORKS_FUSED_NONE;
+    ret = ANeuralNetworksModel_setOperandValue(
+            *model, (int32_t) input_fuse, &input_fuse_value,
+            sizeof(input_fuse_value));
+    if (ret != ANEURALNETWORKS_NO_ERROR) {
+        GGML_LOG_ERROR("ANeuralNetworksModel_setOperandValue failed for operand (%d)", input_fuse);
+        return false;
+    }
+
+    uint32_t out_vector = op_idx++;
+
+    ret = ANeuralNetworksModel_addOperand(*model, out_vector_type);
+    if (ret != ANEURALNETWORKS_NO_ERROR) {
+        GGML_LOG_ERROR("addOperand failed for tensor_out operand of type %s",
+                       operand_code_str((OperandCode)out_vector_type->type));
+        return false;
+    }
+
+    // Add the FULLY_CONNECTED operation.
+    std::vector<uint32_t> fully_connected_input_operands = {
+            input_matrix,
+            input_weights,
+            input_bias,
+            input_fuse
+    };
+    ret = ANeuralNetworksModel_addOperation(
+            *model, ANEURALNETWORKS_FULLY_CONNECTED, fully_connected_input_operands.size(),
+            fully_connected_input_operands.data(), 1, &out_vector);
+    if (ret != ANEURALNETWORKS_NO_ERROR) {
+        GGML_LOG_ERROR("ANeuralNetworksModel_addOperation failed for FULLY_CONNECTED");
+        return false;
+    }
+
+    std::vector<uint32_t> model_inputs = {
+            input_matrix,
+            input_weights,
+//            input_bias,
+//            input_fuse
+    };
+    std::vector<uint32_t> model_outputs = {
+            out_vector,
+    };
+    ret = ANeuralNetworksModel_identifyInputsAndOutputs(
+            *model, model_inputs.size(), model_inputs.data(), model_outputs.size(),
+            model_outputs.data());
+    if (ret != ANEURALNETWORKS_NO_ERROR) {
+        GGML_LOG_ERROR("ANeuralNetworksModel_identifyInputsAndOutputs failed");
+        return false;
+    }
+
+    ret = ANeuralNetworksModel_finish(*model);
+    if (ret != ANEURALNETWORKS_NO_ERROR) {
+        GGML_LOG_ERROR("ANeuralNetworksModel_finish failed");
+        return false;
+    }
+
+    return true;
+}
+
 static void check_device_support_for_model(ggml_backend_nnapi_context * ctx,
                                            ANeuralNetworksModel* model) {
     for (ANeuralNetworksDevice* device : ctx->devices) {
@@ -890,7 +1080,7 @@ static bool compile_model(ANeuralNetworksDevice* device, ANeuralNetworksModel* m
         return false;
     }
 
-    PreferenceCode preference_code = ANEURALNETWORKS_PREFER_FAST_SINGLE_ANSWER;
+    PreferenceCode preference_code = ANEURALNETWORKS_PREFER_SUSTAINED_SPEED;
     // TODO: benchmark this
     // PreferenceCode preference_code = ANEURALNETWORKS_PREFER_SUSTAINED_SPEED;
     ret = ANeuralNetworksCompilation_setPreference(*compilation, preference_code);
@@ -1107,6 +1297,68 @@ static void check_device_op_support(ggml_backend_nnapi_context * ctx, OperandCod
     ANeuralNetworksModel_free(model);
 }
 
+static void check_device_op_support_fully_connected(ggml_backend_nnapi_context * ctx,
+                                                    OperandCode op_type,
+                                                    uint32_t batch_size,
+                                                    uint32_t input_size,
+                                                    uint32_t num_units) {
+    std::vector<uint32_t> input_matrix_dimensions = {
+            batch_size, input_size
+    };
+    ANeuralNetworksOperandType input_matrix_type = {
+            .type = op_type,
+            .dimensionCount = static_cast<uint32_t>(input_matrix_dimensions.size()),
+            .dimensions = input_matrix_dimensions.data(),
+            .scale = 0.0f,
+            .zeroPoint = 0,
+    };
+
+    std::vector<uint32_t> input_weights_dimensions = {
+            num_units, input_size
+    };
+    ANeuralNetworksOperandType input_weights_type = {
+            .type = op_type,
+            .dimensionCount = static_cast<uint32_t>(input_weights_dimensions.size()),
+            .dimensions = input_weights_dimensions.data(),
+            .scale = 0.0f,
+            .zeroPoint = 0,
+    };
+
+    std::vector<uint32_t> out_vector_dimensions = {
+            batch_size, num_units
+    };
+    ANeuralNetworksOperandType out_vector_type = {
+            .type = op_type,
+            .dimensionCount = static_cast<uint32_t>(out_vector_dimensions.size()),
+            .dimensions = out_vector_dimensions.data(),
+            .scale = 0.0f,
+            .zeroPoint = 0,
+    };
+
+    if (op_type == ANEURALNETWORKS_TENSOR_QUANT8_ASYMM ||
+        op_type == ANEURALNETWORKS_TENSOR_QUANT8_ASYMM_SIGNED) {
+        input_matrix_type.scale = 1.0f;
+        input_weights_type.scale = 1.0f;
+        out_vector_type.scale = 1.0f;
+    }
+
+    ANeuralNetworksModel* model = nullptr;
+    if (!build_fully_connected_model(&model,
+                                     &input_matrix_type,
+                                     &input_weights_type,
+                                     &out_vector_type,
+                                     num_units)) {
+        GGML_LOG_ERROR("Failed to build the mat mul model for type %s",
+                       operand_code_str(op_type));
+    }
+
+    GGML_LOG_WARN("Checking fully connected support for type %s:", operand_code_str(op_type));
+
+    check_device_support_for_model(ctx, model);
+    ANeuralNetworksModel_free(model);
+}
+
+
 static void print_device_model_support(ggml_backend_nnapi_context * ctx) {
     // supported types for matmul
     std::vector<OperandCode> types_to_test = {
@@ -1121,6 +1373,25 @@ static void print_device_model_support(ggml_backend_nnapi_context * ctx) {
     }
 
     check_device_op_support(ctx, ANEURALNETWORKS_TENSOR_QUANT8_ASYMM_SIGNED, 2048, 17, 1024);
+}
+
+static void print_device_model_support_fully_connected(ggml_backend_nnapi_context * ctx) {
+    // supported types for fully connected
+    std::vector<OperandCode> types_to_test = {
+        ANEURALNETWORKS_TENSOR_FLOAT16,
+        ANEURALNETWORKS_TENSOR_FLOAT32,
+        ANEURALNETWORKS_TENSOR_QUANT8_ASYMM,
+        ANEURALNETWORKS_TENSOR_QUANT8_ASYMM_SIGNED
+    };
+
+    uint32_t batch_size = 1024;
+    uint32_t input_size = 1024;
+    uint32_t num_units = 1;
+
+    for (OperandCode tensor_type_code : types_to_test) {
+        check_device_op_support_fully_connected(ctx, tensor_type_code, batch_size, input_size, num_units);
+    }
+
 }
 
 // backend interface
@@ -1202,6 +1473,8 @@ ggml_backend_t ggml_backend_nnapi_init(void) {
 
 //    print_runtime_infos(ctx);
 //    print_device_model_support(ctx);
+
+    print_device_model_support_fully_connected(ctx);
 
     return backend;
 }
