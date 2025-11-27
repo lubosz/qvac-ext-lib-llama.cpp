@@ -306,7 +306,8 @@ static bool build_mat_mul_model(ANeuralNetworksModel** model,
                                 ANeuralNetworksOperandType *in_tensor1_type,
                                 ANeuralNetworksOperandType *out_tensor_type,
                                 bool transpose_b);
-static bool compile_model(ANeuralNetworksModel* model, ANeuralNetworksCompilation** compilation);
+static bool compile_model(ANeuralNetworksDevice* device, ANeuralNetworksModel* model,
+                          ANeuralNetworksCompilation** compilation, bool use_fallback=true);
 
 struct nnapi_pipeline {
     ANeuralNetworksModel* model = nullptr;
@@ -316,7 +317,8 @@ struct nnapi_pipeline {
     nnapi_tensor src1;
     nnapi_tensor dst;
 
-    nnapi_pipeline(const struct ggml_tensor * a,
+    nnapi_pipeline(ANeuralNetworksDevice* device,
+                   const struct ggml_tensor * a,
                    const struct ggml_tensor * b,
                    const struct ggml_tensor * c) {
         src0 = nnapi_tensor(a, a->type, true, false);
@@ -359,7 +361,7 @@ struct nnapi_pipeline {
             return;
         }
 
-        if (!compile_model(model, &compilation)) {
+        if (!compile_model(device, model, &compilation)) {
             GGML_LOG_ERROR("Failed to compile model.");
             return;
         }
@@ -873,16 +875,25 @@ static void check_device_support_for_model(ggml_backend_nnapi_context * ctx,
     }
 }
 
-static bool compile_model(ANeuralNetworksModel* model, ANeuralNetworksCompilation** compilation) {
-    // ANeuralNetworksCompilation_createForDevices
-    int ret = ANeuralNetworksCompilation_create(model, compilation);
+static bool compile_model(ANeuralNetworksDevice* device, ANeuralNetworksModel* model,
+                          ANeuralNetworksCompilation** compilation, bool use_fallback) {
+    int ret = ANEURALNETWORKS_NO_ERROR;
+    if (use_fallback) {
+        ret = ANeuralNetworksCompilation_create(model, compilation);
+    } else {
+        const ANeuralNetworksDevice* devices[] = { device };
+        ret = ANeuralNetworksCompilation_createForDevices(model, devices, 1, compilation);
+    }
+
     if (ret != ANEURALNETWORKS_NO_ERROR) {
         GGML_LOG_ERROR("ANeuralNetworksCompilation_create failed");
         return false;
     }
 
-    ret = ANeuralNetworksCompilation_setPreference(
-            *compilation, ANEURALNETWORKS_PREFER_FAST_SINGLE_ANSWER);
+    PreferenceCode preference_code = ANEURALNETWORKS_PREFER_FAST_SINGLE_ANSWER;
+    // TODO: benchmark this
+    // PreferenceCode preference_code = ANEURALNETWORKS_PREFER_SUSTAINED_SPEED;
+    ret = ANeuralNetworksCompilation_setPreference(*compilation, preference_code);
     if (ret != ANEURALNETWORKS_NO_ERROR) {
         GGML_LOG_ERROR("ANeuralNetworksCompilation_setPreference failed");
         return false;
@@ -1008,7 +1019,7 @@ static void ggml_backend_nnapi_mul_mat(ggml_backend_nnapi_context * ctx, struct 
 //        GGML_LOG_ERROR("Building pipeline for: %ld x %ld @ %ld x %ld -> %ld x %ld (%ld, %ld, %ld)",
 //                       m, k, k, n, m, n, m, n, k);
 
-        auto p = std::make_unique<nnapi_pipeline>(src0, src1, dst);
+        auto p = std::make_unique<nnapi_pipeline>(ctx->npus[0], src0, src1, dst);
         ctx->pipelines.emplace(op_tuple, std::move(p));
     }
     nnapi_pipeline *pipeline = ctx->pipelines.at(op_tuple).get();
@@ -1186,6 +1197,8 @@ ggml_backend_t ggml_backend_nnapi_init(void) {
         .device  = ggml_backend_reg_dev_get(ggml_backend_nnapi_reg(), 0),
         .context = ctx,
     };
+
+    enumerate_devices(ctx);
 
 //    print_runtime_infos(ctx);
 //    print_device_model_support(ctx);
