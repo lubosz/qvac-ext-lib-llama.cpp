@@ -430,8 +430,6 @@ struct vk_device_struct {
     bool single_queue;
     uint32_t subgroup_size;
     uint32_t shader_core_count;
-    bool uma;
-    bool prefer_host_memory;
     bool float_controls_rte_fp16;
     bool subgroup_arithmetic;
     bool subgroup_shuffle;
@@ -3702,9 +3700,6 @@ static vk_device ggml_vk_get_device(size_t idx) {
 
         device->architecture = get_device_architecture(device->physical_device);
 
-        const char* GGML_VK_PREFER_HOST_MEMORY = getenv("GGML_VK_PREFER_HOST_MEMORY");
-        device->prefer_host_memory = GGML_VK_PREFER_HOST_MEMORY != nullptr;
-
         const char* GGML_VK_DISABLE_HOST_VISIBLE_VIDMEM = getenv("GGML_VK_DISABLE_HOST_VISIBLE_VIDMEM");
         device->disable_host_visible_vidmem = GGML_VK_DISABLE_HOST_VISIBLE_VIDMEM != nullptr;
 
@@ -3859,8 +3854,6 @@ static vk_device ggml_vk_get_device(size_t idx) {
                           descriptor_buffer_props.descriptorBufferAddressSpaceSize);
             device->tiling_threshold = descriptor_buffer_props.descriptorBufferAddressSpaceSize;
         }
-
-        device->uma = device->properties.deviceType == vk::PhysicalDeviceType::eIntegratedGpu;
         if (sm_builtins) {
             device->shader_core_count = sm_props.shaderSMCount;
         } else if (amd_shader_core_properties2) {
@@ -4527,7 +4520,6 @@ static void ggml_vk_print_gpu_info(size_t idx) {
 
     uint32_t default_subgroup_size = get_subgroup_size("", device_architecture);
     const size_t subgroup_size = (default_subgroup_size != 0) ? default_subgroup_size : subgroup_props.subgroupSize;
-    const bool uma = props2.properties.deviceType == vk::PhysicalDeviceType::eIntegratedGpu;
 
     integer_dot_product = integer_dot_product
                        && shader_integer_dot_product_props.integerDotProduct4x8BitPackedSignedAccelerated
@@ -4542,8 +4534,8 @@ static void ggml_vk_print_gpu_info(size_t idx) {
     std::string matrix_cores = coopmat2_support ? "NV_coopmat2" : coopmat_support ? "KHR_coopmat" : "none";
 
     std::string device_name = props2.properties.deviceName.data();
-    GGML_LOG_DEBUG("ggml_vulkan: %zu = %s (%s) | uma: %d | fp16: %d | bf16: %d | warp size: %zu | shared memory: %d | int dot: %d | matrix cores: %s\n",
-              idx, device_name.c_str(), driver_props.driverName.data(), uma, fp16, bf16, subgroup_size,
+    GGML_LOG_DEBUG("ggml_vulkan: %zu = %s (%s) | fp16: %d | bf16: %d | warp size: %zu | shared memory: %d | int dot: %d | matrix cores: %s\n",
+              idx, device_name.c_str(), driver_props.driverName.data(), fp16, bf16, subgroup_size,
               props2.properties.limits.maxComputeSharedMemorySize, integer_dot_product, matrix_cores.c_str());
 
     if (props2.properties.deviceType == vk::PhysicalDeviceType::eCpu) {
@@ -5648,7 +5640,7 @@ static void ggml_vk_buffer_read(vk_buffer& src, size_t offset, void * dst, size_
     // If the device is not an UMA device the memory is host-accessible through rebar. While writing
     // through PCIe is sufficient fast reading back data from PCIe is slower than going through
     // the HW device to host copy path.
-    if(src->memory_property_flags & vk::MemoryPropertyFlagBits::eHostVisible && src->device->uma) {
+    if(src->memory_property_flags & vk::MemoryPropertyFlagBits::eHostVisible) {
         GGML_ASSERT(src->memory_property_flags & vk::MemoryPropertyFlagBits::eHostCoherent);
 
         memcpy(dst, (uint8_t *) src->info.pMappedData + offset, size);
@@ -6472,15 +6464,11 @@ static void ggml_vk_mul_mat_q_f16(ggml_backend_vk_context * ctx, vk_context& sub
     vk_buffer d_Qy = nullptr;
     size_t qy_buf_offset = 0;
 
-    bool src0_uma = false;
-    bool src1_uma = false;
+    ggml_vk_host_get(ctx->device, src0->data, d_Qx, qx_buf_offset);
+    ggml_vk_host_get(ctx->device, src1->data, d_Qy, qy_buf_offset);
 
-    if (ctx->device->uma) {
-        ggml_vk_host_get(ctx->device, src0->data, d_Qx, qx_buf_offset);
-        ggml_vk_host_get(ctx->device, src1->data, d_Qy, qy_buf_offset);
-        src0_uma = d_Qx != nullptr;
-        src1_uma = d_Qy != nullptr;
-    }
+    bool src0_uma = d_Qx != nullptr;
+    bool src1_uma = d_Qy != nullptr;
 
     // Reformat and convert to fp16 if non-contiguous, or for coopmat2 for better perf
     const bool x_non_contig = (ctx->device->coopmat2 && src0->type == GGML_TYPE_F32) ||
@@ -6822,15 +6810,11 @@ static void ggml_vk_mul_mat_vec_q_f16(ggml_backend_vk_context * ctx, vk_context&
     vk_buffer d_Qy = nullptr;
     size_t qy_buf_offset = 0;
 
-    bool src0_uma = false;
-    bool src1_uma = false;
+    ggml_vk_host_get(ctx->device, src0->data, d_Qx, qx_buf_offset);
+    ggml_vk_host_get(ctx->device, src1->data, d_Qy, qy_buf_offset);
 
-    if (ctx->device->uma) {
-        ggml_vk_host_get(ctx->device, src0->data, d_Qx, qx_buf_offset);
-        ggml_vk_host_get(ctx->device, src1->data, d_Qy, qy_buf_offset);
-        src0_uma = d_Qx != nullptr;
-        src1_uma = d_Qy != nullptr;
-    }
+    bool src0_uma = d_Qx != nullptr;
+    bool src1_uma = d_Qy != nullptr;
 
     const bool x_non_contig = !ggml_vk_dim01_contiguous(src0);
     const bool y_non_contig = !ggml_vk_dim01_contiguous(src1);
@@ -7059,12 +7043,8 @@ static void ggml_vk_mul_mat_vec_p021_f16_f32(ggml_backend_vk_context * ctx, vk_c
     vk_buffer d_Qy = nullptr;
     size_t qy_buf_offset = 0;
 
-    bool src1_uma = false;
-
-    if (ctx->device->uma) {
-        ggml_vk_host_get(ctx->device, src1->data, d_Qy, qy_buf_offset);
-        src1_uma = d_Qy != nullptr;
-    }
+    ggml_vk_host_get(ctx->device, src1->data, d_Qy, qy_buf_offset);
+    bool src1_uma = d_Qy != nullptr;
 
     const uint64_t x_ne = ne00 * ne01 * ne02;
     const uint64_t y_ne = ne10 * ne11 * ne12;
@@ -7156,12 +7136,8 @@ static void ggml_vk_mul_mat_vec_nc_f16_f32(ggml_backend_vk_context * ctx, vk_con
     vk_buffer d_Qy = nullptr;
     size_t qy_buf_offset = 0;
 
-    bool src1_uma = false;
-
-    if (ctx->device->uma) {
-        ggml_vk_host_get(ctx->device, src1->data, d_Qy, qy_buf_offset);
-        src1_uma = d_Qy != nullptr;
-    }
+    ggml_vk_host_get(ctx->device, src1->data, d_Qy, qy_buf_offset);
+    bool src1_uma = d_Qy != nullptr;
 
     const uint64_t d_ne = ne01 * ne11 * ne12 * ne03;
 
@@ -7272,18 +7248,12 @@ static void ggml_vk_mul_mat_id_q_f16(ggml_backend_vk_context * ctx, vk_context& 
     vk_buffer d_ids = nullptr;
     size_t ids_buf_offset = 0;
 
-    bool src0_uma = false;
-    bool src1_uma = false;
-    bool ids_uma = false;
-
-    if (ctx->device->uma) {
-        ggml_vk_host_get(ctx->device, src0->data, d_Qx, qx_buf_offset);
-        ggml_vk_host_get(ctx->device, src1->data, d_Qy, qy_buf_offset);
-        ggml_vk_host_get(ctx->device, ids->data, d_ids, ids_buf_offset);
-        src0_uma = d_Qx != nullptr;
-        src1_uma = d_Qy != nullptr;
-        ids_uma = d_ids != nullptr;
-    }
+    ggml_vk_host_get(ctx->device, src0->data, d_Qx, qx_buf_offset);
+    ggml_vk_host_get(ctx->device, src1->data, d_Qy, qy_buf_offset);
+    ggml_vk_host_get(ctx->device, ids->data, d_ids, ids_buf_offset);
+    bool src0_uma = d_Qx != nullptr;
+    bool src1_uma = d_Qy != nullptr;
+    bool ids_uma = d_ids != nullptr;
 
     // Reformat and convert to fp16 if non-contiguous, or for coopmat2 for better perf
     const bool x_non_contig = (ctx->device->coopmat2 && src0->type == GGML_TYPE_F32) ||
@@ -7508,18 +7478,12 @@ static void ggml_vk_mul_mat_vec_id_q_f16(ggml_backend_vk_context * ctx, vk_conte
     vk_buffer d_ids = nullptr;
     size_t ids_buf_offset = 0;
 
-    bool src0_uma = false;
-    bool src1_uma = false;
-    bool ids_uma = false;
-
-    if (ctx->device->uma) {
-        ggml_vk_host_get(ctx->device, src0->data, d_Qx, qx_buf_offset);
-        ggml_vk_host_get(ctx->device, src1->data, d_Qy, qy_buf_offset);
-        ggml_vk_host_get(ctx->device, ids->data, d_ids, ids_buf_offset);
-        src0_uma = d_Qx != nullptr;
-        src1_uma = d_Qy != nullptr;
-        ids_uma = d_ids != nullptr;
-    }
+    ggml_vk_host_get(ctx->device, src0->data, d_Qx, qx_buf_offset);
+    ggml_vk_host_get(ctx->device, src1->data, d_Qy, qy_buf_offset);
+    ggml_vk_host_get(ctx->device, ids->data, d_ids, ids_buf_offset);
+    bool src0_uma = d_Qx != nullptr;
+    bool src1_uma = d_Qy != nullptr;
+    bool ids_uma = d_ids != nullptr;
 
     const bool x_non_contig = !ggml_vk_dim01_contiguous(src0);
     const bool y_non_contig = !ggml_vk_dim01_contiguous(src1);
@@ -7951,27 +7915,24 @@ static void ggml_vk_flash_attn(ggml_backend_vk_context * ctx, vk_context& subctx
     vk_buffer d_Q = nullptr, d_K = nullptr, d_V = nullptr, d_D = nullptr, d_M = nullptr, d_S = nullptr;
     size_t q_buf_offset = 0, k_buf_offset = 0, v_buf_offset = 0, d_buf_offset = 0, m_buf_offset = 0, s_buf_offset = 0;
 
-    bool Q_uma = false, K_uma = false, V_uma = false, D_uma = false, M_uma = false, S_uma = false;
+    bool M_uma = false, S_uma = false;
 
-    if (ctx->device->uma) {
-        ggml_vk_host_get(ctx->device, q->data, d_Q, q_buf_offset);
-        ggml_vk_host_get(ctx->device, k->data, d_K, k_buf_offset);
-        ggml_vk_host_get(ctx->device, v->data, d_V, v_buf_offset);
-        ggml_vk_host_get(ctx->device, dst->data, d_D, d_buf_offset);
-        Q_uma = d_Q != nullptr;
-        K_uma = d_K != nullptr;
-        V_uma = d_V != nullptr;
-        D_uma = d_D != nullptr;
-        if (mask) {
-            ggml_vk_host_get(ctx->device, mask->data, d_M, m_buf_offset);
-            M_uma = d_M != nullptr;
-        }
-        if (sinks) {
-            ggml_vk_host_get(ctx->device, sinks->data, d_S, s_buf_offset);
-            S_uma = d_S != nullptr;
-        }
+    ggml_vk_host_get(ctx->device, q->data, d_Q, q_buf_offset);
+    ggml_vk_host_get(ctx->device, k->data, d_K, k_buf_offset);
+    ggml_vk_host_get(ctx->device, v->data, d_V, v_buf_offset);
+    ggml_vk_host_get(ctx->device, dst->data, d_D, d_buf_offset);
+    bool Q_uma = d_Q != nullptr;
+    bool K_uma = d_K != nullptr;
+    bool V_uma = d_V != nullptr;
+    bool D_uma = d_D != nullptr;
+    if (mask) {
+        ggml_vk_host_get(ctx->device, mask->data, d_M, m_buf_offset);
+        M_uma = d_M != nullptr;
     }
-
+    if (sinks) {
+        ggml_vk_host_get(ctx->device, sinks->data, d_S, s_buf_offset);
+        S_uma = d_S != nullptr;
+    }
 
     ggml_backend_vk_buffer_context * d_buf_ctx = (ggml_backend_vk_buffer_context *)dst->buffer->context;
     ggml_backend_vk_buffer_context * q_buf_ctx = (ggml_backend_vk_buffer_context *)q->buffer->context;
@@ -8753,21 +8714,18 @@ static void ggml_vk_op_f32(ggml_backend_vk_context * ctx, vk_context& subctx, co
     vk_buffer d_Z = nullptr;
     size_t z_buf_offset = 0;
 
-    bool src0_uma = false;
     bool src1_uma = false;
     bool src2_uma = false;
 
-    if (ctx->device->uma) {
-        ggml_vk_host_get(ctx->device, src0->data, d_X, x_buf_offset);
-        src0_uma = d_X != nullptr;
-        if (use_src1) {
-            ggml_vk_host_get(ctx->device, src1->data, d_Y, y_buf_offset);
-            src1_uma = d_Y != nullptr;
-        }
-        if (use_src2) {
-            ggml_vk_host_get(ctx->device, src2->data, d_Z, z_buf_offset);
-            src2_uma = d_Z != nullptr;
-        }
+    ggml_vk_host_get(ctx->device, src0->data, d_X, x_buf_offset);
+    bool src0_uma = d_X != nullptr;
+    if (use_src1) {
+        ggml_vk_host_get(ctx->device, src1->data, d_Y, y_buf_offset);
+        src1_uma = d_Y != nullptr;
+    }
+    if (use_src2) {
+        ggml_vk_host_get(ctx->device, src2->data, d_Z, z_buf_offset);
+        src2_uma = d_Z != nullptr;
     }
 
     uint64_t x_sz = ggml_type_size(src0->type)/ggml_blck_size(src0->type) * ne0;
@@ -9235,10 +9193,8 @@ static void ggml_vk_multi_add(ggml_backend_vk_context * ctx, vk_context& subctx,
         offset[i] = 0;
         uma[i] = false;
 
-        if (ctx->device->uma) {
             ggml_vk_host_get(ctx->device, tensors[i]->data, buf[i], offset[i]);
             uma[i] = buf[i] != nullptr;
-        }
         if (!uma[i]) {
             buf[i] = buf_ctx[i]->dev_buffer;
             offset[i] = vk_tensor_offset(tensors[i]) + tensors[i]->view_offs;
@@ -9385,17 +9341,15 @@ static void ggml_vk_op_f32_wkv(ggml_backend_vk_context * ctx, vk_context& subctx
 
     vk_buffer d_D = nullptr, d_srcs[7] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
     size_t dst_offset = 0, src_offsets[7] = { 0, 0, 0, 0, 0, 0, 0 };
-    bool dst_uma = false, srcs_uma[7] = { false, false, false, false, false, false, false };
+    bool srcs_uma[7] = { false, false, false, false, false, false, false };
 
-    if (ctx->device->uma) {
-        for (int i = 0; i < num_srcs; i++) {
-            ggml_vk_host_get(ctx->device, dst->src[i]->data, d_srcs[i], src_offsets[i]);
-            srcs_uma[i] = d_srcs[i] != nullptr;
-        }
-
-        ggml_vk_host_get(ctx->device, dst->data, d_D, dst_offset);
-        dst_uma = d_D != nullptr;
+    for (int i = 0; i < num_srcs; i++) {
+        ggml_vk_host_get(ctx->device, dst->src[i]->data, d_srcs[i], src_offsets[i]);
+        srcs_uma[i] = d_srcs[i] != nullptr;
     }
+
+    ggml_vk_host_get(ctx->device, dst->data, d_D, dst_offset);
+    bool dst_uma = d_D != nullptr;
 
     uint64_t src_sizes[7] = { 0, 0, 0, 0, 0, 0, 0 };
     for (int i = 0; i < num_srcs; i++) {
@@ -9522,21 +9476,18 @@ static void ggml_vk_op_f32_opt_step_adamw(ggml_backend_vk_context * ctx, vk_cont
 
     vk_buffer d_X = nullptr, d_G = nullptr, d_GM = nullptr, d_GV = nullptr, d_P = nullptr;
     size_t x_offset = 0, g_offset = 0, gm_offset = 0, gv_offset = 0, p_offset = 0;
-    bool X_uma = false, G_uma = false, GM_uma = false, GV_uma = false, P_uma = false;
 
-    if (ctx->device->uma) {
-        ggml_vk_host_get(ctx->device, x->data, d_X, x_offset);
-        ggml_vk_host_get(ctx->device, g->data, d_G, g_offset);
-        ggml_vk_host_get(ctx->device, gm->data, d_GM, gm_offset);
-        ggml_vk_host_get(ctx->device, gv->data, d_GV, gv_offset);
-        ggml_vk_host_get(ctx->device, p->data, d_P, p_offset);
+    ggml_vk_host_get(ctx->device, x->data, d_X, x_offset);
+    ggml_vk_host_get(ctx->device, g->data, d_G, g_offset);
+    ggml_vk_host_get(ctx->device, gm->data, d_GM, gm_offset);
+    ggml_vk_host_get(ctx->device, gv->data, d_GV, gv_offset);
+    ggml_vk_host_get(ctx->device, p->data, d_P, p_offset);
 
-        X_uma = d_X != nullptr;
-        G_uma = d_G != nullptr;
-        GM_uma = d_GM != nullptr;
-        GV_uma = d_GV != nullptr;
-        P_uma = d_P != nullptr;
-    }
+    bool X_uma = d_X != nullptr;
+    bool G_uma = d_G != nullptr;
+    bool GM_uma = d_GM != nullptr;
+    bool GV_uma = d_GV != nullptr;
+    bool P_uma = d_P != nullptr;
 
     if (!X_uma) {
         d_X = x_buf_ctx->dev_buffer;
@@ -9892,21 +9843,18 @@ static void ggml_vk_op_f32_cross_entropy_loss_masked_back(ggml_backend_vk_contex
 
     vk_buffer d_grad = nullptr, d_logits = nullptr, d_labels = nullptr, d_mask = nullptr, d_dst = nullptr;
     size_t grad_offset = 0, logits_offset = 0, labels_offset = 0, mask_offset = 0, dst_offset = 0;
-    bool grad_uma = false, logits_uma = false, labels_uma = false, mask_uma = false, dst_uma = false;
 
-    if (ctx->device->uma) {
-        ggml_vk_host_get(ctx->device, grad->data, d_grad, grad_offset);
-        ggml_vk_host_get(ctx->device, logits->data, d_logits, logits_offset);
-        ggml_vk_host_get(ctx->device, labels->data, d_labels, labels_offset);
-        ggml_vk_host_get(ctx->device, mask->data, d_mask, mask_offset);
-        ggml_vk_host_get(ctx->device, dst->data, d_dst, dst_offset);
+    ggml_vk_host_get(ctx->device, grad->data, d_grad, grad_offset);
+    ggml_vk_host_get(ctx->device, logits->data, d_logits, logits_offset);
+    ggml_vk_host_get(ctx->device, labels->data, d_labels, labels_offset);
+    ggml_vk_host_get(ctx->device, mask->data, d_mask, mask_offset);
+    ggml_vk_host_get(ctx->device, dst->data, d_dst, dst_offset);
 
-        grad_uma = d_grad != nullptr;
-        logits_uma = d_logits != nullptr;
-        labels_uma = d_labels != nullptr;
-        mask_uma = d_mask != nullptr;
-        dst_uma = d_dst != nullptr;
-    }
+    bool grad_uma = d_grad != nullptr;
+    bool logits_uma = d_logits != nullptr;
+    bool labels_uma = d_labels != nullptr;
+    bool mask_uma = d_mask != nullptr;
+    bool dst_uma = d_dst != nullptr;
 
     if (!grad_uma) {
         d_grad = grad_buf_ctx->dev_buffer;
