@@ -23,6 +23,75 @@
 
 #define UNUSED GGML_UNUSED
 
+#define STR_HELPER(x) #x
+#define STR(x) STR_HELPER(x)
+
+#if defined(__aarch64__)
+#pragma message("__aarch64__ is defined: " STR(__aarch64__))
+#else
+#warning "__aarch64__ undefined!"
+#endif
+
+#if defined(__ARM_ARCH)
+#pragma message("__ARM_ARCH is defined: " STR(__ARM_ARCH))
+#else
+#warning "__ARM_ARCH undefined!"
+#endif
+
+#if defined(__ARM_NEON)
+#pragma message("__ARM_NEON is defined: " STR(__ARM_NEON))
+#else
+#warning "__ARM_NEON undefined!"
+#endif
+
+#if defined(__ARM_FEATURE_FMA)
+#pragma message("__ARM_FEATURE_FMA is defined: " STR(__ARM_FEATURE_FMA))
+#else
+#warning "__ARM_FEATURE_FMA undefined!"
+#endif
+
+#if defined(__ARM_FEATURE_UNALIGNED)
+#pragma message("__ARM_FEATURE_UNALIGNED is defined: " STR(__ARM_FEATURE_UNALIGNED))
+#else
+#warning "__ARM_FEATURE_UNALIGNED undefined!"
+#endif
+
+#if defined(__ARM_FEATURE_DOTPROD)
+#pragma message("__ARM_FEATURE_DOTPROD is defined: " STR(__ARM_FEATURE_DOTPROD))
+#else
+#warning "__ARM_FEATURE_DOTPROD undefined!"
+#endif
+
+#if defined(__ARM_FEATURE_SVE)
+#pragma message("__ARM_FEATURE_SVE is defined: " STR(__ARM_FEATURE_SVE))
+#else
+#warning "__ARM_FEATURE_SVE undefined!"
+#endif
+
+#if defined(__ARM_FEATURE_SVE2)
+#pragma message("__ARM_FEATURE_SVE2 is defined: " STR(__ARM_FEATURE_SVE2))
+#else
+#warning "__ARM_FEATURE_SVE2 undefined!"
+#endif
+
+#if defined(__ARM_FEATURE_SME)
+#pragma message("__ARM_FEATURE_SME is defined: " STR(__ARM_FEATURE_SME))
+#else
+#warning "__ARM_FEATURE_SME undefined!"
+#endif
+
+#if defined(__ARM_FEATURE_FP16_VECTOR_ARITHMETIC)
+#pragma message("__ARM_FEATURE_FP16_VECTOR_ARITHMETIC is defined: " STR(__ARM_FEATURE_FP16_VECTOR_ARITHMETIC))
+#else
+#warning "__ARM_FEATURE_FP16_VECTOR_ARITHMETIC undefined!"
+#endif
+
+#if defined(__ARM_FEATURE_MATMUL_INT8)
+#pragma message("__ARM_FEATURE_MATMUL_INT8 is defined: " STR(__ARM_FEATURE_MATMUL_INT8))
+#else
+#warning "__ARM_FEATURE_MATMUL_INT8 undefined!"
+#endif
+
 #if defined(__ARM_NEON)
 #define B1(c,s,n)  0x ## n ## c ,  0x ## n ## s
 #define B2(c,s,n) B1(c,s,n ## c), B1(c,s,n ## s)
