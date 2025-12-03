@@ -1312,7 +1312,8 @@ void android_main(android_app* state) {
     std::filesystem::path gguf_path = external_files_path / gguf_file_name;
     if (!std::filesystem::exists(gguf_path)) {
         LOGE("Error: The model file at %s does not exist.", gguf_path.string().c_str());
-        LOGE("Download the model in the app or copy it using adb or mtp.");
+        LOGE("Download the model in the app or copy it using adb:");
+        LOGE("adb push %s %s/", gguf_file_name.c_str(), external_files_path.string().c_str());
         return;
     }
 
@@ -1322,7 +1323,8 @@ void android_main(android_app* state) {
         LOGI("Found %s with %.2f MiB (%ld bytes)", gguf_file_name.c_str(), size_mebi_byte, size);
     } catch (std::filesystem::filesystem_error& e) {
         LOGE("Failed to read the model file at %s: %s", gguf_path.string().c_str(), e.what());
-        LOGE("Download the model in the app or copy it using adb or mtp.");
+        LOGE("Download the model in the app or copy it using adb:");
+        LOGE("adb push %s %s/", gguf_file_name.c_str(), external_files_path.string().c_str());
         return;
     }
 
