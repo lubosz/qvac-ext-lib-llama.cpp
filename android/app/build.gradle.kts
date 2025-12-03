@@ -8,6 +8,7 @@ plugins {
 android {
     namespace = "ai.ggml.llamacpp"
     compileSdk = 36
+    ndkVersion = "29.0.14206865"
 
     defaultConfig {
         applicationId = "ai.ggml.llamacpp"
