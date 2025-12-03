@@ -376,7 +376,15 @@ if (GGML_CPU_ALL_VARIANTS)
         message(FATAL_ERROR "GGML_CPU_ALL_VARIANTS not yet supported with ${GGML_SYSTEM_ARCH} on ${CMAKE_SYSTEM_NAME}")
     endif()
 elseif (GGML_CPU)
-    ggml_add_cpu_backend_variant_impl("")
+    if(${ANDROID_ABI} STREQUAL "arm64-v8a")
+
+        # SM8750
+#        ggml_add_cpu_backend_variant(android_armv8.7 DOTPROD MATMUL_INT8)
+        # Cortex-X4
+        ggml_add_cpu_backend_variant(android_armv9.2 DOTPROD FP16_VECTOR_ARITHMETIC SVE MATMUL_INT8 SVE2 SME)
+    else()
+        ggml_add_cpu_backend_variant_impl("")
+    endif()
 endif()
 
 ggml_add_backend(BLAS)

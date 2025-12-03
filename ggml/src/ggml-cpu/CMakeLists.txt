@@ -159,7 +159,7 @@ function(ggml_add_cpu_backend_variant_impl tag_name)
             else()
                 if (GGML_CPU_ARM_ARCH)
                     list(APPEND ARCH_FLAGS -march=${GGML_CPU_ARM_ARCH})
-                elseif(GGML_CPU_ALL_VARIANTS)
+                elseif(GGML_CPU_ALL_VARIANTS OR ${ANDROID_ABI} STREQUAL "arm64-v8a")
                     # Begin with the lowest baseline
                     set(ARM_MCPU "armv8-a")
                     set(ARCH_TAGS "")
@@ -212,8 +212,14 @@ function(ggml_add_cpu_backend_variant_impl tag_name)
                 set(FEAT_INPUT_FILE "/dev/null")
             endif()
 
+            if (${ANDROID_ABI} STREQUAL "arm64-v8a")
+                # This is needed when cross compiling
+                # TODO: Retrieve target arch from gradle
+                set(ANDROID_TARGET_FLAG "--target=aarch64-linux-android")
+            endif()
+
             execute_process(
-                COMMAND ${CMAKE_C_COMPILER} ${ARCH_FLAGS} -dM -E -
+                COMMAND ${CMAKE_C_COMPILER} ${ANDROID_TARGET_FLAG} ${ARCH_FLAGS} -dM -E -
                 INPUT_FILE ${FEAT_INPUT_FILE}
                 OUTPUT_VARIABLE ARM_FEATURE
                 RESULT_VARIABLE ARM_FEATURE_RESULT
