@@ -1341,10 +1341,11 @@ void android_main(android_app* state) {
             "--top-k", "0",
             "--flash-attn", "off",
             "-st",
-//            "-ngl", "0",
-            "-ngl", "999",
+            "-ngl", "0",
+//            "-ngl", "999",
             "-p", prompt.c_str(),
-            "--bench", "5"
+            "--bench", "5",
+            "--device", "none"
     };
 
     main(args.size(), const_cast<char **>(args.data()));
