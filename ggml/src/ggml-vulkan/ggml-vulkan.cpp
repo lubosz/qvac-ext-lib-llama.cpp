@@ -1983,7 +1983,7 @@ static vk_buffer ggml_vk_create_buffer(vk_device& device, const vk::BufferCreate
     buf->size = buffer_info.size;
 
 #ifdef GGML_VULKAN_MEMORY_DEBUG
-    device->memory_logger->log_allocation(buf, size);
+    device->memory_logger->log_allocation(buf, buf->size);
 #endif
 
     return buf;

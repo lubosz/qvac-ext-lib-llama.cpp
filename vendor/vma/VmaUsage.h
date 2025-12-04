@@ -94,6 +94,7 @@ include all public interface declarations. Example:
     #pragma clang diagnostic ignored "-Wunused-parameter"
     #pragma clang diagnostic ignored "-Wmissing-field-initializers"
     #pragma clang diagnostic ignored "-Wnullability-completeness"
+    #pragma clang diagnostic ignored "-Wnullability-extension"
 #endif
 
 #ifdef __GNUC__
