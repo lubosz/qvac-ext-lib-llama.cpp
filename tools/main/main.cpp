@@ -1304,11 +1304,11 @@ void android_main(android_app* state) {
 
     // Params
     std::string gguf_file_name =
-            "Qwen3_0.6B.Q8_0.gguf"
+            "Qwen3-1.7B-Q4_0.gguf"
+//            "Qwen3_0.6B.Q8_0.gguf"
 //            "tinyllama-1.1-f16.gguf"
             ;
-    // std::string gguf_file_name = "gemma-3-1b-it-Q4_0.gguf";
-    std::string prompt = "What is the tallest building in the world?";
+    std::string prompt = "Tell me a joke about cats";
 
     std::filesystem::path external_files_path = std::filesystem::path(activity->externalDataPath);
 
@@ -1334,9 +1334,17 @@ void android_main(android_app* state) {
     std::vector<const char*> args = {
             "llama-cli", "-m",
             strdup(gguf_path.string().c_str()),
-            "-c", "0",
-            "-n", "256",
-            "-ngl", "0", "-p", prompt.c_str()
+            "-c", "2048",
+            "-s", "42",
+            "--temp", "0",
+            "--top-p", "1.0",
+            "--top-k", "0",
+            "--flash-attn", "off",
+            "-st",
+//            "-ngl", "0",
+            "-ngl", "999",
+            "-p", prompt.c_str(),
+            "--bench", "5"
     };
 
     main(args.size(), const_cast<char **>(args.data()));
