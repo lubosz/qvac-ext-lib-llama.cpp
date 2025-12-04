@@ -21,7 +21,12 @@ VKAPI_ATTR void VKAPI_CALL vkResetQueryPool(
 
 #define VMA_IMPLEMENTATION
 #define VMA_VULKAN_VERSION 1004000
+#if defined(ANDROID)
+#define VMA_STATIC_VULKAN_FUNCTIONS 0
+#define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
+#else
 #define VMA_STATIC_VULKAN_FUNCTIONS 1
+#endif
 #include "vma/VmaUsage.h"
 
 #include <algorithm>
