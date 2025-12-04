@@ -56,7 +56,8 @@ android {
                     "-DLLAMA_BUILD_TOOLS=1",
                     "-DLLAMA_BUILD_EXAMPLES=1",
                     "-DLLAMA_BUILD_COMMON=ON",
-                    "-DCMAKE_BUILD_TYPE=Release"
+                    "-DCMAKE_BUILD_TYPE=Release",
+                    "-D GGML_CPU_KLEIDIAI=ON"
                 )
 
                 abiFilters("arm64-v8a")
