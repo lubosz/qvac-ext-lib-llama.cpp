@@ -12,6 +12,7 @@
 #include <android/sharedmem.h>
 #include <sys/mman.h>
 #include <ggml-quants.h>
+#include <unistd.h>
 
 static OperandCode ggml_to_nnapi_type(ggml_type gt) {
     switch(gt) {
