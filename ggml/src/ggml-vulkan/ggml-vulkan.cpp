@@ -106,8 +106,6 @@ static bool is_pow2(uint32_t x) { return x > 1 && (x & (x-1)) == 0; }
 #define VK_VENDOR_ID_NVIDIA 0x10de
 #define VK_VENDOR_ID_QUALCOMM 0x5143
 
-#define VK_DEVICE_DESCRIPTOR_POOL_SIZE 256
-
 #define GGML_VK_MAX_NODES 8192
 
 #define MAX_VK_BUFFERS 256
@@ -1426,7 +1424,7 @@ struct ggml_backend_vk_context {
 
     std::vector<vk_context_ref> tensor_ctxs;
 
-    std::vector<vk::DescriptorPool> descriptor_pools;
+    vk::DescriptorPool descriptor_pool;
     std::vector<vk::DescriptorSet> descriptor_sets;
     uint32_t descriptor_set_idx {};
     uint32_t pipeline_descriptor_set_requirements {};
@@ -1694,33 +1692,24 @@ static void ggml_pipeline_allocate_descriptor_sets(ggml_backend_vk_context * ctx
         return;
     }
 
+    GGML_LOG_WARN("🍌 pipeline_descriptor_set_requirements: %d\n", ctx->pipeline_descriptor_set_requirements);
+
     vk_device& device = ctx->device;
 
     uint32_t to_alloc = ctx->pipeline_descriptor_set_requirements - ctx->descriptor_sets.size();
-    uint32_t pool_remaining = VK_DEVICE_DESCRIPTOR_POOL_SIZE - ctx->descriptor_sets.size() % VK_DEVICE_DESCRIPTOR_POOL_SIZE;
-    uint32_t pool_idx = ctx->descriptor_sets.size() / VK_DEVICE_DESCRIPTOR_POOL_SIZE;
 
-    while (to_alloc > 0) {
-        const uint32_t alloc_count = std::min(pool_remaining, to_alloc);
-        to_alloc -= alloc_count;
-        pool_remaining = VK_DEVICE_DESCRIPTOR_POOL_SIZE;
+    vk::DescriptorPoolSize descriptor_pool_size(vk::DescriptorType::eStorageBuffer, MAX_PARAMETER_COUNT * to_alloc);
+    vk::DescriptorPoolCreateInfo descriptor_pool_create_info({}, to_alloc, descriptor_pool_size);
+    ctx->descriptor_pool = device->device.createDescriptorPool(descriptor_pool_create_info);
 
-        if (pool_idx >= ctx->descriptor_pools.size()) {
-            vk::DescriptorPoolSize descriptor_pool_size(vk::DescriptorType::eStorageBuffer, MAX_PARAMETER_COUNT * VK_DEVICE_DESCRIPTOR_POOL_SIZE);
-            vk::DescriptorPoolCreateInfo descriptor_pool_create_info({}, VK_DEVICE_DESCRIPTOR_POOL_SIZE, descriptor_pool_size);
-            ctx->descriptor_pools.push_back(device->device.createDescriptorPool(descriptor_pool_create_info));
-        }
-
-        std::vector<vk::DescriptorSetLayout> layouts(alloc_count);
-        for (uint32_t i = 0; i < alloc_count; i++) {
-            layouts[i] = device->dsl;
-        }
-        vk::DescriptorSetAllocateInfo descriptor_set_alloc_info(ctx->descriptor_pools[pool_idx], alloc_count, layouts.data());
-        std::vector<vk::DescriptorSet> sets = device->device.allocateDescriptorSets(descriptor_set_alloc_info);
-        ctx->descriptor_sets.insert(ctx->descriptor_sets.end(), sets.begin(), sets.end());
-
-        pool_idx++;
+    std::vector<vk::DescriptorSetLayout> layouts(to_alloc);
+    for (uint32_t i = 0; i < to_alloc; i++) {
+        layouts[i] = device->dsl;
     }
+
+    vk::DescriptorSetAllocateInfo descriptor_set_alloc_info(ctx->descriptor_pool, to_alloc, layouts.data());
+    std::vector<vk::DescriptorSet> sets = device->device.allocateDescriptorSets(descriptor_set_alloc_info);
+    ctx->descriptor_sets.insert(ctx->descriptor_sets.end(), sets.begin(), sets.end());
 }
 
 static vk::CommandBuffer ggml_vk_create_cmd_buffer(vk_device& device, vk_command_pool& p) {
@@ -12087,10 +12076,7 @@ static void ggml_vk_cleanup(ggml_backend_vk_context * ctx) {
     ctx->device->device.destroyFence(ctx->fence);
     ctx->device->device.destroyFence(ctx->almost_ready_fence);
 
-    for (auto& pool : ctx->descriptor_pools) {
-        ctx->device->device.destroyDescriptorPool(pool);
-    }
-    ctx->descriptor_pools.clear();
+    ctx->device->device.destroyDescriptorPool(ctx->descriptor_pool);
     ctx->descriptor_sets.clear();
 
     ctx->compute_cmd_pool.destroy(ctx->device->device);
