@@ -3742,6 +3742,8 @@ static vk_device ggml_vk_get_device(size_t idx) {
             last_struct = (VkBaseOutStructure *)&shader_integer_dot_product_props;
         }
 
+
+
         device->physical_device.getProperties2(&props2);
         device->properties = props2.properties;
         device->descriptor_buffer_props = descriptor_buffer_props;
@@ -4177,6 +4179,18 @@ static vk_device ggml_vk_get_device(size_t idx) {
 #endif
         device->name = GGML_VK_NAME + std::to_string(idx);
 
+        // Set up Vulkan 1.2 descriptor indexing features
+        {
+            vk12_features.runtimeDescriptorArray = VK_TRUE;
+            vk12_features.descriptorBindingPartiallyBound = VK_TRUE;
+            vk12_features.shaderStorageBufferArrayNonUniformIndexing = VK_TRUE;
+            vk12_features.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+            vk12_features.shaderStorageImageArrayNonUniformIndexing = VK_TRUE;
+            vk12_features.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
+            vk12_features.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+            vk12_features.descriptorBindingStorageImageUpdateAfterBind = VK_TRUE;
+        }
+
         device_create_info = {
             vk::DeviceCreateFlags(),
             device_queue_create_infos,
@@ -4196,6 +4210,16 @@ static vk_device ggml_vk_get_device(size_t idx) {
         }
 
         device->device = device->physical_device.createDevice(device_create_info);
+
+        // Vulkan 1.2 descriptor indexing limits
+        {
+            GGML_LOG_INFO("🥝 maxDescriptorSetStorageBuffers: 0x%x\n",
+                          device->properties.limits.maxDescriptorSetStorageBuffers);
+            GGML_LOG_INFO("🥝 maxDescriptorSetSampledImages: 0x%x\n",
+                          device->properties.limits.maxDescriptorSetSampledImages);
+            GGML_LOG_INFO("🥝 maxDescriptorSetStorageImages: 0x%x\n",
+                          device->properties.limits.maxDescriptorSetStorageImages);
+        }
 
         VmaVulkanFunctions vulkanFunctions = {};
         vulkanFunctions.vkGetInstanceProcAddr = &vkGetInstanceProcAddr;
