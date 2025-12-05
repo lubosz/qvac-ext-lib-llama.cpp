@@ -1585,12 +1585,15 @@ static void ggml_vk_create_pipeline_func(vk_device& device, vk_pipeline& pipelin
         pipeline->push_constant_size
     );
 
+    GGML_LOG_WARN("🥒 Create pipeline layout parameter_count %d\n", parameter_count);
+
     vk::PipelineLayoutCreateInfo pipeline_layout_create_info(vk::PipelineLayoutCreateFlags(), device->dsl, pcr);
     pipeline->layout = device->device.createPipelineLayout(pipeline_layout_create_info);
 
     std::vector<vk::SpecializationMapEntry> specialization_entries(specialization_constants.size());
 
     for (size_t i = 0; i < specialization_constants.size(); i++) {
+        GGML_LOG_WARN("🥒 Adding constantID %ld\n", i);
         specialization_entries[i].constantID = i;
         specialization_entries[i].offset = i * sizeof(uint32_t);
         specialization_entries[i].size = sizeof(uint32_t);
@@ -1631,10 +1634,14 @@ static void ggml_vk_create_pipeline_func(vk_device& device, vk_pipeline& pipelin
     vk::PipelineRobustnessCreateInfoEXT rci;
 
     if (device->pipeline_robustness && disable_robustness) {
+        GGML_LOG_WARN("🍰 Adding robustness %s\n", entrypoint.c_str());
         rci.storageBuffers = vk::PipelineRobustnessBufferBehaviorEXT::eDisabled;
         rci.uniformBuffers = vk::PipelineRobustnessBufferBehaviorEXT::eDisabled;
         compute_pipeline_create_info.setPNext(&rci);
     }
+
+    GGML_LOG_WARN("🥒 Create compute pipeline %d\n", disable_robustness);
+    GGML_LOG_WARN("🥒 Create compute pipeline %s\n", entrypoint.c_str());
 
     try {
         pipeline->pipeline = device->device.createComputePipeline(VK_NULL_HANDLE, compute_pipeline_create_info).value;
@@ -5234,6 +5241,9 @@ static void ggml_vk_dispatch_pipeline(ggml_backend_vk_context* ctx, vk_context& 
     std::cerr << "}, (" << wg0 << "," << wg1 << "," << wg2 << "))");
     GGML_ASSERT(descriptor_buffer_infos.size() <= MAX_PARAMETER_COUNT);
     GGML_ASSERT(pipeline->parameter_count == descriptor_buffer_infos.size());
+
+    GGML_LOG_WARN("🍆 parameter_count: %d\n", pipeline->parameter_count);
+    GGML_LOG_WARN("🍆 descriptor_buffer_infos: %ld\n", descriptor_buffer_infos.size());
 
     vk::DescriptorSet& descriptor_set = ctx->descriptor_set;
     vk::WriteDescriptorSet write_descriptor_set{ descriptor_set, 0, 0, pipeline->parameter_count, vk::DescriptorType::eStorageBuffer, nullptr, descriptor_buffer_infos.begin() };
