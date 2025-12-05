@@ -1425,8 +1425,7 @@ struct ggml_backend_vk_context {
     std::vector<vk_context_ref> tensor_ctxs;
 
     vk::DescriptorPool descriptor_pool;
-    std::vector<vk::DescriptorSet> descriptor_sets;
-    uint32_t descriptor_set_idx {};
+    vk::DescriptorSet descriptor_set;
     uint32_t pipeline_descriptor_set_requirements {};
 
     vk_command_pool compute_cmd_pool;
@@ -1687,8 +1686,8 @@ static void ggml_pipeline_request_descriptor_sets(ggml_backend_vk_context *ctx, 
 
 static void ggml_pipeline_allocate_descriptor_sets(ggml_backend_vk_context * ctx) {
 
-    if (ctx->descriptor_sets.size() >= ctx->pipeline_descriptor_set_requirements) {
-        // Enough descriptors are available
+    if (ctx->descriptor_set) {
+        // Already initialized
         return;
     }
 
@@ -1696,20 +1695,19 @@ static void ggml_pipeline_allocate_descriptor_sets(ggml_backend_vk_context * ctx
 
     vk_device& device = ctx->device;
 
-    uint32_t to_alloc = ctx->pipeline_descriptor_set_requirements - ctx->descriptor_sets.size();
-
-    vk::DescriptorPoolSize descriptor_pool_size(vk::DescriptorType::eStorageBuffer, MAX_PARAMETER_COUNT * to_alloc);
-    vk::DescriptorPoolCreateInfo descriptor_pool_create_info({}, to_alloc, descriptor_pool_size);
+    vk::DescriptorPoolSize descriptor_pool_size(vk::DescriptorType::eStorageBuffer,
+                                                device->properties.limits.maxDescriptorSetStorageBuffers);
+    vk::DescriptorPoolCreateInfo descriptor_pool_create_info(vk::DescriptorPoolCreateFlagBits::eUpdateAfterBind, 1, descriptor_pool_size);
     ctx->descriptor_pool = device->device.createDescriptorPool(descriptor_pool_create_info);
 
-    std::vector<vk::DescriptorSetLayout> layouts(to_alloc);
-    for (uint32_t i = 0; i < to_alloc; i++) {
-        layouts[i] = device->dsl;
-    }
+    std::vector<vk::DescriptorSetLayout> layouts = { device->dsl }; // only a single set = 0
 
-    vk::DescriptorSetAllocateInfo descriptor_set_alloc_info(ctx->descriptor_pool, to_alloc, layouts.data());
-    std::vector<vk::DescriptorSet> sets = device->device.allocateDescriptorSets(descriptor_set_alloc_info);
-    ctx->descriptor_sets.insert(ctx->descriptor_sets.end(), sets.begin(), sets.end());
+    vk::DescriptorSetAllocateInfo descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo()
+            .setDescriptorPool(ctx->descriptor_pool)
+            .setDescriptorSetCount(1)
+            .setSetLayouts(layouts);
+
+    ctx->descriptor_set = device->device.allocateDescriptorSets(descriptor_set_alloc_info)[0];
 }
 
 static vk::CommandBuffer ggml_vk_create_cmd_buffer(vk_device& device, vk_command_pool& p) {
@@ -4266,6 +4264,32 @@ static vk_device ggml_vk_get_device(size_t idx) {
         }
 
 
+        {
+            constexpr int STORAGE_BINDING = 0;
+            std::vector<vk::DescriptorSetLayoutBinding> dsl_bindings = {
+                    vk::DescriptorSetLayoutBinding()
+                            .setBinding(STORAGE_BINDING)
+                            .setDescriptorType(vk::DescriptorType::eStorageBuffer)
+                            .setDescriptorCount(device->properties.limits.maxDescriptorSetStorageBuffers)
+                            .setStageFlags(vk::ShaderStageFlagBits::eCompute),
+            };
+
+            vk::DescriptorSetLayoutBindingFlagsCreateInfo dsl_binding_flag_info = {};
+            std::vector<vk::DescriptorBindingFlags> dsl_binding_flags = {
+                    vk::DescriptorBindingFlagBits::ePartiallyBound | vk::DescriptorBindingFlagBits::eUpdateAfterBind,
+            };
+            dsl_binding_flag_info.setBindingFlags(dsl_binding_flags);
+
+            vk::DescriptorSetLayoutCreateInfo descriptor_set_layout_create_info = vk::DescriptorSetLayoutCreateInfo()
+                    .setBindings(dsl_bindings)
+                    .setFlags(vk::DescriptorSetLayoutCreateFlagBits::eUpdateAfterBindPool) // updateAfterBind feature
+                    .setPNext(&dsl_binding_flag_info);
+
+            device->dsl = device->device.createDescriptorSetLayout(descriptor_set_layout_create_info);
+
+        }
+
+#if 0
         std::vector<vk::DescriptorSetLayoutBinding> dsl_binding;
         std::vector<vk::DescriptorBindingFlags> dsl_binding_flags;
         for (uint32_t i = 0; i < MAX_PARAMETER_COUNT; i++) {
@@ -4280,7 +4304,7 @@ static vk_device ggml_vk_get_device(size_t idx) {
             dsl_binding);
         descriptor_set_layout_create_info.setPNext(&dslbfci);
         device->dsl = device->device.createDescriptorSetLayout(descriptor_set_layout_create_info);
-
+#endif
         ggml_vk_load_shaders(device);
 
         if (!device->single_queue) {
@@ -5208,11 +5232,10 @@ static void ggml_vk_dispatch_pipeline(ggml_backend_vk_context* ctx, vk_context& 
         std::cerr << "(" << buffer.buffer << ", " << buffer.offset << ", " << buffer.range << "), ";
     }
     std::cerr << "}, (" << wg0 << "," << wg1 << "," << wg2 << "))");
-    GGML_ASSERT(ctx->descriptor_set_idx < ctx->descriptor_sets.size());
     GGML_ASSERT(descriptor_buffer_infos.size() <= MAX_PARAMETER_COUNT);
     GGML_ASSERT(pipeline->parameter_count == descriptor_buffer_infos.size());
 
-    vk::DescriptorSet& descriptor_set = ctx->descriptor_sets[ctx->descriptor_set_idx++];
+    vk::DescriptorSet& descriptor_set = ctx->descriptor_set;
     vk::WriteDescriptorSet write_descriptor_set{ descriptor_set, 0, 0, pipeline->parameter_count, vk::DescriptorType::eStorageBuffer, nullptr, descriptor_buffer_infos.begin() };
     ctx->device->device.updateDescriptorSets({ write_descriptor_set }, {});
 
@@ -12046,7 +12069,6 @@ static void ggml_vk_graph_cleanup(ggml_backend_vk_context * ctx) {
     ctx->tensor_ctxs.clear();
     ctx->gc.contexts.clear();
     ctx->pipeline_descriptor_set_requirements = 0;
-    ctx->descriptor_set_idx = 0;
 }
 
 // Clean up on backend free
@@ -12077,7 +12099,6 @@ static void ggml_vk_cleanup(ggml_backend_vk_context * ctx) {
     ctx->device->device.destroyFence(ctx->almost_ready_fence);
 
     ctx->device->device.destroyDescriptorPool(ctx->descriptor_pool);
-    ctx->descriptor_sets.clear();
 
     ctx->compute_cmd_pool.destroy(ctx->device->device);
     ctx->transfer_cmd_pool.destroy(ctx->device->device);
