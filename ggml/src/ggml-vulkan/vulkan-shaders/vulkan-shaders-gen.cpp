@@ -778,7 +778,7 @@ void process_shaders() {
     string_to_spv("multi_add_f32", "multi_add.comp", {{"A_TYPE", "float"}, {"B_TYPE", "float"}, {"D_TYPE", "float"}, {"FLOAT_TYPE", "float"}, {"RTE16", "1"}, {"ADD_RMS" , "0"}});
     string_to_spv("multi_add_rms_f32", "multi_add.comp", {{"A_TYPE", "float"}, {"B_TYPE", "float"}, {"D_TYPE", "float"}, {"FLOAT_TYPE", "float"}, {"RTE16", "1"}, {"ADD_RMS" , "1"}});
 
-#ifdef GGML_VULKAN_BUILD_ADRENO_SHADERS
+#if defined(GGML_VULKAN_BUILD_ADRENO_SHADERS)
     std::cout << "ggml_vulkan: Generating Adreno-supported shaders" << std::endl;
 
     std::vector<std::string> adreno_shader_types = {"f32", "f16", "q4_0", "q4_k", "q4_1", "q5_k", "q6_k", "q8_0"};
