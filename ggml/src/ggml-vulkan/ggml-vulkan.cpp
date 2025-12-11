@@ -1585,7 +1585,10 @@ static void ggml_vk_create_pipeline_func(vk_device& device, vk_pipeline& pipelin
         pipeline->push_constant_size
     );
 
-    GGML_LOG_WARN("🥒 Create pipeline layout parameter_count %d\n", parameter_count);
+    GGML_LOG_WARN("🥒 Create pipeline layout parameter_count %d push constant size %d specialization constants %ld\n",
+                  parameter_count,
+                  pipeline->push_constant_size,
+                  specialization_constants.size());
 
     vk::PipelineLayoutCreateInfo pipeline_layout_create_info(vk::PipelineLayoutCreateFlags(), device->dsl, pcr);
     pipeline->layout = device->device.createPipelineLayout(pipeline_layout_create_info);
