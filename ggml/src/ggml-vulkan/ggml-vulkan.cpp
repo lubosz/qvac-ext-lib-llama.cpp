@@ -1705,12 +1705,18 @@ static void ggml_pipeline_allocate_descriptor_sets(ggml_backend_vk_context * ctx
 
     vk_device& device = ctx->device;
 
-    vk::DescriptorPoolSize descriptor_pool_size(vk::DescriptorType::eStorageBuffer,
-                                                device->properties.limits.maxDescriptorSetStorageBuffers);
-    vk::DescriptorPoolCreateInfo descriptor_pool_create_info(vk::DescriptorPoolCreateFlagBits::eUpdateAfterBind, 1, descriptor_pool_size);
+    constexpr uint32_t BUFFER_COUNT_PER_BINDING = 1024;
+    // device->properties.limits.maxDescriptorSetStorageBuffers
+    constexpr uint32_t POOL_SIZE = BUFFER_COUNT_PER_BINDING * 3;
+
+    vk::DescriptorPoolSize descriptor_pool_size(vk::DescriptorType::eStorageBuffer, POOL_SIZE);
+
+    // We only use one global set
+    constexpr uint32_t MAX_SETS = 1;
+    vk::DescriptorPoolCreateInfo descriptor_pool_create_info(vk::DescriptorPoolCreateFlagBits::eUpdateAfterBind, MAX_SETS, descriptor_pool_size);
     ctx->descriptor_pool = device->device.createDescriptorPool(descriptor_pool_create_info);
 
-    std::vector<vk::DescriptorSetLayout> layouts = { device->dsl }; // only a single set = 0
+    std::vector<vk::DescriptorSetLayout> layouts = { device->dsl };
 
     vk::DescriptorSetAllocateInfo descriptor_set_alloc_info = vk::DescriptorSetAllocateInfo()
             .setDescriptorPool(ctx->descriptor_pool)
@@ -4275,17 +4281,35 @@ static vk_device ggml_vk_get_device(size_t idx) {
 
 
         {
-            constexpr int STORAGE_BINDING = 0;
+            // device->properties.limits.maxDescriptorSetStorageBuffers
+            constexpr uint32_t BUFFER_COUNT_PER_BINDING = 1024;
+
+            constexpr int FLOAT32_BINDING = 0;
+            constexpr int FLOAT16_BINDING = 1;
+            constexpr int INT32_BINDING = 2;
+
             std::vector<vk::DescriptorSetLayoutBinding> dsl_bindings = {
                     vk::DescriptorSetLayoutBinding()
-                            .setBinding(STORAGE_BINDING)
+                            .setBinding(FLOAT32_BINDING)
                             .setDescriptorType(vk::DescriptorType::eStorageBuffer)
-                            .setDescriptorCount(device->properties.limits.maxDescriptorSetStorageBuffers)
+                            .setDescriptorCount(BUFFER_COUNT_PER_BINDING)
+                            .setStageFlags(vk::ShaderStageFlagBits::eCompute),
+                    vk::DescriptorSetLayoutBinding()
+                            .setBinding(FLOAT16_BINDING)
+                            .setDescriptorType(vk::DescriptorType::eStorageBuffer)
+                            .setDescriptorCount(BUFFER_COUNT_PER_BINDING)
+                            .setStageFlags(vk::ShaderStageFlagBits::eCompute),
+                    vk::DescriptorSetLayoutBinding()
+                            .setBinding(INT32_BINDING)
+                            .setDescriptorType(vk::DescriptorType::eStorageBuffer)
+                            .setDescriptorCount(BUFFER_COUNT_PER_BINDING)
                             .setStageFlags(vk::ShaderStageFlagBits::eCompute),
             };
 
             vk::DescriptorSetLayoutBindingFlagsCreateInfo dsl_binding_flag_info = {};
             std::vector<vk::DescriptorBindingFlags> dsl_binding_flags = {
+                    vk::DescriptorBindingFlagBits::ePartiallyBound | vk::DescriptorBindingFlagBits::eUpdateAfterBind,
+                    vk::DescriptorBindingFlagBits::ePartiallyBound | vk::DescriptorBindingFlagBits::eUpdateAfterBind,
                     vk::DescriptorBindingFlagBits::ePartiallyBound | vk::DescriptorBindingFlagBits::eUpdateAfterBind,
             };
             dsl_binding_flag_info.setBindingFlags(dsl_binding_flags);
