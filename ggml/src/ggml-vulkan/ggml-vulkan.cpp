@@ -1997,7 +1997,7 @@ static vk_buffer ggml_vk_create_buffer_device(vk_device& device, size_t size) {
     const vk::BufferCreateInfo buffer_create_info{
         vk::BufferCreateFlags(),
         size,
-        vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferSrc | vk::BufferUsageFlagBits::eTransferDst,
+        vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferSrc | vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eShaderDeviceAddress,
         vk::SharingMode::eExclusive,
         0,
         nullptr,
@@ -4202,7 +4202,7 @@ static vk_device ggml_vk_get_device(size_t idx) {
         vulkanFunctions.vkGetDeviceProcAddr = &vkGetDeviceProcAddr;
 
         VmaAllocatorCreateInfo allocatorCreateInfo = {};
-        allocatorCreateInfo.flags = 0;
+        allocatorCreateInfo.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
         allocatorCreateInfo.vulkanApiVersion = vk::enumerateInstanceVersion();
         allocatorCreateInfo.physicalDevice = device->physical_device;
         allocatorCreateInfo.device = device->device;
@@ -5080,7 +5080,7 @@ static void * ggml_vk_host_malloc(vk_device& device, size_t size) {
     const vk::BufferCreateInfo buffer_info{
         vk::BufferCreateFlags(),
         size,
-        vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eTransferSrc,
+        vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eTransferSrc | vk::BufferUsageFlagBits::eShaderDeviceAddress,
         vk::SharingMode::eExclusive,
         0,
         nullptr,
@@ -5263,7 +5263,7 @@ static void ggml_vk_ensure_sync_staging_buffer(vk_device& device, size_t size) {
         const vk::BufferCreateInfo buffer_info{
             vk::BufferCreateFlags(),
             size,
-            vk::BufferUsageFlagBits::eTransferSrc | vk::BufferUsageFlagBits::eTransferDst,
+            vk::BufferUsageFlagBits::eTransferSrc | vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eShaderDeviceAddress,
             vk::SharingMode::eExclusive,
             0,
             nullptr,
@@ -12208,7 +12208,7 @@ static ggml_backend_buffer_t ggml_backend_vk_buffer_type_alloc_buffer(ggml_backe
         const vk::BufferCreateInfo buffer_info{
             vk::BufferCreateFlags(),
             size,
-            vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eTransferSrc,
+            vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eTransferSrc | vk::BufferUsageFlagBits::eShaderDeviceAddress,
             vk::SharingMode::eExclusive,
             0,
             nullptr,
