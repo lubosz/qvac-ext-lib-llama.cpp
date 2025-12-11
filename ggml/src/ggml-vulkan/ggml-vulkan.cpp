@@ -1588,8 +1588,15 @@ static void ggml_vk_create_pipeline_func(vk_device& device, vk_pipeline& pipelin
         pipeline->push_constant_size
     );
 
-    vk::PipelineLayoutCreateInfo pipeline_layout_create_info(vk::PipelineLayoutCreateFlags(), device->dsl, pcr);
-    pipeline->layout = device->device.createPipelineLayout(pipeline_layout_create_info);
+    if (pipeline->name == "mul_mat_vec_q4_0_q8_1_f32") {
+        vk::DescriptorSetLayout empty_layout =
+                device->device.createDescriptorSetLayout(vk::DescriptorSetLayoutCreateInfo().setBindingCount(0));
+        vk::PipelineLayoutCreateInfo pipeline_layout_create_info(vk::PipelineLayoutCreateFlags(), empty_layout, pcr);
+        pipeline->layout = device->device.createPipelineLayout(pipeline_layout_create_info);
+    } else {
+        vk::PipelineLayoutCreateInfo pipeline_layout_create_info(vk::PipelineLayoutCreateFlags(), device->dsl, pcr);
+        pipeline->layout = device->device.createPipelineLayout(pipeline_layout_create_info);
+    }
 
     std::vector<vk::SpecializationMapEntry> specialization_entries(specialization_constants.size());
 
@@ -5200,16 +5207,21 @@ static void ggml_vk_dispatch_pipeline(ggml_backend_vk_context* ctx, vk_context& 
     GGML_ASSERT(pipeline->parameter_count == descriptor_buffer_infos.size());
 
     vk::DescriptorSet& descriptor_set = ctx->descriptor_sets[ctx->descriptor_set_idx++];
-    vk::WriteDescriptorSet write_descriptor_set{ descriptor_set, 0, 0, pipeline->parameter_count, vk::DescriptorType::eStorageBuffer, nullptr, descriptor_buffer_infos.begin() };
-    ctx->device->device.updateDescriptorSets({ write_descriptor_set }, {});
 
+    if (pipeline->name != "mul_mat_vec_q4_0_q8_1_f32") {
+        vk::WriteDescriptorSet write_descriptor_set{ descriptor_set, 0, 0, pipeline->parameter_count, vk::DescriptorType::eStorageBuffer, nullptr, descriptor_buffer_infos.begin() };
+        ctx->device->device.updateDescriptorSets({ write_descriptor_set }, {});
+    }
     subctx->s->buffer.pushConstants(pipeline->layout, vk::ShaderStageFlagBits::eCompute, 0, push_constant_size(push_constants), push_constant_data(push_constants));
     subctx->s->buffer.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline->pipeline);
-    subctx->s->buffer.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
-                                pipeline->layout,
-                                0,
-                                { descriptor_set },
-                                {});
+
+    if (pipeline->name != "mul_mat_vec_q4_0_q8_1_f32") {
+        subctx->s->buffer.bindDescriptorSets(vk::PipelineBindPoint::eCompute,
+                                    pipeline->layout,
+                                    0,
+                                    { descriptor_set },
+                                    {});
+    }
     subctx->s->buffer.dispatch(wg0, wg1, wg2);
 }
 
