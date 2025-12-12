@@ -2,6 +2,8 @@
 
 #extension GL_EXT_control_flow_attributes : require
 #extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference2 : require
 
 #ifdef USE_SUBGROUPS
 #extension GL_KHR_shader_subgroup_basic : require
@@ -12,22 +14,29 @@
 #define INVOCATION_ID gl_LocalInvocationID.x
 #endif
 
-layout (push_constant) uniform parameter
-{
-    uint ne;
-} p;
-
 #include "types.comp"
 
 layout(constant_id = 0) const uint GROUP_SIZE = 32;
+
 layout(local_size_x_id = 0, local_size_y = 1, local_size_z = 1) in;
 
-layout (binding = 0) readonly buffer A {vec4 data_a[];};
+layout (buffer_reference, std430) readonly buffer A {vec4 data_a[];};
 #ifndef QBLOCK_X4
-layout (binding = 1) writeonly buffer D {block_q8_1_packed32 data_b[];};
+layout (buffer_reference, std430) writeonly buffer D {block_q8_1_packed32 data_b[];};
 #else
-layout (binding = 1) writeonly buffer D {block_q8_1_x4 data_b[];};
+layout (buffer_reference, std430) writeonly buffer D {block_q8_1_x4 data_b[];};
 #endif
+
+layout (push_constant) uniform parameter
+{
+    uint ne;
+
+    A data_a_ptr;
+    D data_d_ptr;
+} p;
+
+#define data_a p.data_a_ptr.data_a
+#define data_b p.data_d_ptr.data_b
 
 #ifndef USE_SUBGROUPS
 shared float shmem[GROUP_SIZE];
