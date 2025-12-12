@@ -13,6 +13,26 @@
 
 #include "types.comp"
 
+// Filter for mul_mat_vec_q4_0_q8_1_f32
+#if defined(DATA_A_Q4_0) && defined(ACC_TYPE)
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference2 : require
+#define USE_DEVICE_ADDR 1
+#endif
+
+#if defined(USE_DEVICE_ADDR)
+
+#if !defined(MMQ)
+layout (buffer_reference, std430) readonly buffer A {A_TYPE data_a[];};
+#else
+layout (buffer_reference, std430) readonly buffer A {A_TYPE_PACKED16 data_a[];};
+#endif
+
+layout (buffer_reference, std430) readonly buffer B {B_TYPE data_b[];};
+layout (buffer_reference, std430) writeonly buffer D {D_TYPE data_d[];};
+
+#else
+
 #ifndef MMQ
 layout (binding = 0) readonly buffer A {A_TYPE data_a[];};
 #else
@@ -32,7 +52,7 @@ layout (binding = 2) writeonly buffer D {D_TYPE data_d[];};
 layout (binding = 3) readonly buffer IDS {int data_ids[];};
 #endif
 
-#include "dequant_funcs.comp"
+#endif
 
 layout (push_constant) uniform parameter
 {
@@ -54,7 +74,22 @@ layout (push_constant) uniform parameter
     uint broadcast2;
     uint broadcast3;
 #endif
+
+#if defined(USE_DEVICE_ADDR)
+    A data_a_ptr;
+    B data_b_ptr;
+    D data_d_ptr;
+#endif
+
 } p;
+
+#if defined(USE_DEVICE_ADDR)
+#define data_a p.data_a_ptr.data_a
+#define data_b p.data_b_ptr.data_b
+#define data_d p.data_d_ptr.data_d
+#endif
+
+#include "dequant_funcs.comp"
 
 void get_offsets(out uint a_offset, out uint b_offset, out uint d_offset) {
 #ifdef MUL_MAT_ID
