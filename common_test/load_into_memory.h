@@ -13,6 +13,9 @@
 #include <thread>
 #include <vector>
 
+#include "llama.h"
+#include "llama-cpp.h"
+
 // header-only utilities to showcase how to directly load a model from memory
 #include "uint8-buff-stream-wrapper.h"
 
