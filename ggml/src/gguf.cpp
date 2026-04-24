@@ -293,42 +293,14 @@ struct gguf_bytes_file_reader : public gguf_bytes_reader {
     FILE * file;
 };
 
-
 struct gguf_reader {
     gguf_bytes_reader& bytes_reader;
 
     gguf_reader(gguf_bytes_reader& bytes_reader) : bytes_reader(bytes_reader) {}
 
-    // helper for remaining bytes in a file
-    static uint64_t file_remain(FILE * file) {
-        const int64_t cur = gguf_ftell(file);
-        if (cur < 0) {
-            return 0;
-        }
-        if (gguf_fseek(file, 0, SEEK_END) != 0) {
-            gguf_fseek(file, cur, SEEK_SET);
-
-            return 0;
-        }
-        const int64_t end = gguf_ftell(file);
-        if (end < 0) {
-            gguf_fseek(file, cur, SEEK_SET);
-
-            return 0;
-        }
-        gguf_fseek(file, cur, SEEK_SET);
-        return static_cast<uint64_t>(end - cur);
-    }
-
     template <typename T>
     bool read(T & dst) const {
-        const size_t size = sizeof(dst);
-        if (nbytes_remain < size) {
-            return false;
-        }
-        const size_t nread = bytes_reader.read(&dst, 1, size);
-        nbytes_remain -= nread;
-        return nread == size;
+        return bytes_reader.read(&dst, 1, sizeof(dst)) == sizeof(dst);
     }
 
     template <typename T>
@@ -401,33 +373,13 @@ struct gguf_reader {
         if (!read(size)) {
             return false;
         }
-        if (size > GGUF_MAX_STRING_LENGTH) {
-            GGML_LOG_ERROR("%s: string length %" PRIu64 " exceeds maximum %" PRIu64 "\n", __func__, size, (uint64_t) GGUF_MAX_STRING_LENGTH);
-            return false;
-        }
-        if (size > nbytes_remain) {
-            GGML_LOG_ERROR("%s: string length %" PRIu64 " exceeds remaining file size %" PRIu64 " bytes\n", __func__, size, nbytes_remain);
-            return false;
-        }
-        dst.resize(static_cast<size_t>(size));
-        const size_t nread = bytes_reader.read(dst.data(), 1, size);
-        nbytes_remain -= nread;
-        return nread == size;
+        dst.resize(size);
+        return bytes_reader.read(dst.data(), 1, dst.length()) == dst.length();
     }
 
     bool read(void * dst, const size_t size) const {
-        if (size > nbytes_remain) {
-            return false;
-        }
-        const size_t nread = bytes_reader.read(dst, 1, size);
-        nbytes_remain -= nread;
-        return nread == size;
+        return bytes_reader.read(dst, 1, size) == size;
     }
-
-private:
-    FILE * file;
-
-    mutable uint64_t nbytes_remain;
 };
 
 struct gguf_context * gguf_init_empty(void) {

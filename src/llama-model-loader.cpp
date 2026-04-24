@@ -499,8 +499,11 @@ namespace GGUFMeta {
 
     // TODO: this is not very clever - figure out something better
     template bool llama_model_loader::get_key_or_arr<std::array<int, 4>>(enum llm_kv kid, std::array<int, 4> & result, uint32_t n, bool required);
-    template bool llama_model_loader::get_key_or_arr<std::array<uint32_t, 512>>(enum llm_kv kid, std::array<uint32_t, 512> & result, uint32_t n, bool required);
+    template bool llama_model_loader::get_key_or_arr<std::array<uint32_t, 512>>(enum llm_kv                 kid,
+                                                                                std::array<uint32_t, 512> & result,
+                                                                                uint32_t n, bool required);
     template bool llama_model_loader::get_key_or_arr<std::array<float, 512>>(enum llm_kv kid, std::array<float, 512> & result, uint32_t n, bool required);
+
 
     // Save tensors data offset of the main file.
     // For subsidiary files, `meta` tensor data offset must not be used,
@@ -561,22 +564,6 @@ llama_model_loader::llama_model_loader(
 
     get_key(llm_kv(LLM_KV_GENERAL_ARCHITECTURE), arch_name, false);
     llm_kv = LLM_KV(llm_arch_from_string(arch_name));
-
-    if (use_mmap && use_direct_io && std::holds_alternative<load_input_variant::fname_load_input>(load_input)) {
-        if (files.back()->has_direct_io()) {
-            LLAMA_LOG_WARN("%s: direct I/O is enabled, disabling mmap\n", __func__);
-            use_mmap = false;
-        } else {
-            LLAMA_LOG_WARN("%s: direct I/O is not available, using mmap\n", __func__);
-            use_direct_io = false;
-
-            // reopen file using std::fopen for mmap
-            files.pop_back();
-
-            load_input_variant::fname_load_input finput = std::get<load_input_variant::fname_load_input>(load_input);
-            files.emplace_back(new llama_file_disk(finput.fname.c_str(), "rb", false));
-        }
-    }
 
     uint16_t n_split = 0;
     get_key(llm_kv(LLM_KV_SPLIT_COUNT), n_split, false);
@@ -1111,12 +1098,12 @@ bool llama_model_loader::load_all_data(size_t size_data, struct ggml_context * c
             }
         } else {
             const auto & file = files.at(weight->idx);
-
             if (file == nullptr) {
-                throw std::runtime_error(format("file not found for tensor '%s' at split-index %d", ggml_get_name(cur), weight->idx));
+                throw std::runtime_error(
+                    format("file not found for tensor '%s' at split-index %d", ggml_get_name(cur), weight->idx));
             }
-            LLAMA_LOG_CMAKE_DEBUG("%s: uploading tensor %s from file at split-index %d\n", __func__, ggml_get_name(cur), weight->idx);
-
+            LLAMA_LOG_CMAKE_DEBUG("%s: uploading tensor %s from file at split-index %d\n", __func__, ggml_get_name(cur),
+                                  weight->idx);
             if (ggml_backend_buffer_is_host(cur->buffer)) {
                 file->seek(weight->offs, SEEK_SET);
                 file->read_raw(cur->data, n_size);

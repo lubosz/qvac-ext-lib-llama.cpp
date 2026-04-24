@@ -10,7 +10,7 @@ function(llama_build source)
     endif()
 
     add_executable(${TEST_TARGET} ${TEST_SOURCES})
-    target_link_libraries(${TEST_TARGET} PRIVATE common llama-common-test)
+    target_link_libraries(${TEST_TARGET} PRIVATE common)
     if (LLAMA_TESTS_INSTALL)
         install(TARGETS ${TEST_TARGET} RUNTIME)
     endif()
@@ -105,7 +105,7 @@ function(llama_build_and_test source)
     if (LLAMA_TESTS_INSTALL)
         install(TARGETS ${TEST_TARGET} RUNTIME)
     endif()
-    target_link_libraries(${TEST_TARGET} PRIVATE common llama-common-test)
+    target_link_libraries(${TEST_TARGET} PRIVATE common)
 
     add_test(
         NAME ${TEST_TARGET}
@@ -235,15 +235,14 @@ endif()
 llama_build_and_test(test-gguf.cpp)
 llama_build_and_test(test-backend-ops.cpp)
 
-llama_build_and_test(test-model-load-cancel.cpp LABEL "model")
-llama_build_and_test(test-model-load-disk.cpp   LABEL "model")
-llama_build_and_test(test-model-load-memory.cpp LABEL "model")
+llama_build_and_test(test-model-load-cancel.cpp       LABEL "model")
+llama_build_and_test(test-model-load-disk.cpp         LABEL "model")
+llama_build_and_test(test-model-load-memory.cpp       LABEL "model")
 llama_build_and_test(test-model-load-memory-split.cpp LABEL "model")
-llama_build_and_test(test-autorelease.cpp       LABEL "model")
-llama_build_and_test(test-backend-sampler.cpp   LABEL "model")
+llama_build_and_test(test-autorelease.cpp             LABEL "model")
+llama_build_and_test(test-backend-sampler.cpp         LABEL "model")
 
 # Test for state restore with fragmented KV cache
-# Requires a model, uses same args pattern as test-thread-safety
 llama_build_and_test(test-state-restore-fragmented.cpp LABEL "model" ARGS -m "${MODEL_DEST}")
 set_tests_properties(test-state-restore-fragmented PROPERTIES FIXTURES_REQUIRED test-download-model)
 

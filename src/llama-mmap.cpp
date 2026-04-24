@@ -397,16 +397,15 @@ int llama_file_disk::file_id() const {
 }
 
 void llama_file_disk::seek(size_t offset, int whence) const { pimpl->seek(offset, whence); }
-void llama_file_disk::read_raw(void * ptr, size_t len) { pimpl->read_raw(ptr, len); }
+void llama_file_disk::read_raw(void * ptr, size_t len) const { pimpl->read_raw(ptr, len); }
 #ifdef _WIN32
-void llama_file_disk::read_raw_unsafe(void * ptr, size_t len) { pimpl->read_raw(ptr, len); }
+void llama_file_disk::read_raw_unsafe(void * ptr, size_t len) const { pimpl->read_raw(ptr, len); }
 #else
-void llama_file_disk::read_raw_unsafe(void * ptr, size_t len) { pimpl->read_raw_unsafe(ptr, len); }
+void llama_file_disk::read_raw_unsafe(void * ptr, size_t len) const { pimpl->read_raw_unsafe(ptr, len); }
 #endif
+void llama_file_disk::read_aligned_chunk(void * dest, size_t size) const { pimpl->read_aligned_chunk(dest, size); }
 
-void llama_file_disk::read_aligned_chunk(void * dest, size_t size) { pimpl->read_aligned_chunk(dest, size); }
-
-uint32_t llama_file_disk::read_u32() { return pimpl->read_u32(); }
+uint32_t llama_file_disk::read_u32() const { return pimpl->read_u32(); }
 
 void llama_file_disk::write_raw(const void * ptr, size_t len) const { pimpl->write_raw(ptr, len); }
 void llama_file_disk::write_u32(uint32_t val) const { pimpl->write_u32(val); }
@@ -444,14 +443,14 @@ template <bool Writable> void llama_file_buffer<Writable>::seek(size_t offset, i
     }
 }
 
-template <bool Writable> void llama_file_buffer<Writable>::read_raw(void * ptr, size_t len) {
+template <bool Writable> void llama_file_buffer<Writable>::read_raw(void * ptr, size_t len) const {
     auto bytes_read = streambuf->sgetn(static_cast<uint8_t *>(ptr), len);
     if (bytes_read != static_cast<std::streamsize>(len)) {
         throw std::runtime_error("read beyond end of buffer");
     }
 }
 
-template <bool Writable> uint32_t llama_file_buffer<Writable>::read_u32() {
+template <bool Writable> uint32_t llama_file_buffer<Writable>::read_u32() const {
     uint32_t val;
     read_raw(&val, sizeof(val));
     return val;

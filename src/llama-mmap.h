@@ -3,8 +3,8 @@
 #include <cstdint>
 #include <memory>
 #include <vector>
-#include <cstdio>
 #include "uint8-buff-stream.h"
+#include <cstdio>
 #include <future>
 #include <string>
 #include <map>
@@ -26,10 +26,10 @@ struct llama_file {
 
     virtual void seek(size_t offset, int whence) const = 0;
 
-    virtual void read_raw(void * ptr, size_t len) = 0;
-    virtual void read_raw_unsafe(void * ptr, size_t len) { read_raw(ptr, len); }
-    virtual void read_aligned_chunk(void * dest, size_t size) { read_raw(dest, size); }
-    virtual uint32_t read_u32() = 0;
+    virtual void read_raw(void * ptr, size_t len) const = 0;
+    virtual void read_raw_unsafe(void * ptr, size_t len) const { read_raw(ptr, len); }
+    virtual void read_aligned_chunk(void * dest, size_t size) const { read_raw(dest, size); }
+    virtual uint32_t read_u32() const = 0;
 
     virtual void write_raw(const void * ptr, size_t len) const = 0;
     virtual void write_u32(uint32_t val) const = 0;
@@ -48,16 +48,16 @@ struct llama_file_disk : public llama_file {
 
     void seek(size_t offset, int whence) const override;
 
-    void read_raw(void * ptr, size_t len) override;
-    void read_raw_unsafe(void * ptr, size_t len) override;
-    void read_aligned_chunk(void * dest, size_t size) override;
-    uint32_t read_u32() override;
+    void read_raw(void * ptr, size_t len) const override;
+    void read_raw_unsafe(void * ptr, size_t len) const override;
+    void read_aligned_chunk(void * dest, size_t size) const override;
+    uint32_t read_u32() const override;
 
     void write_raw(const void * ptr, size_t len) const override;
     void write_u32(uint32_t val) const override;
 
-    size_t read_alignment() const;
-    bool has_direct_io() const;
+    size_t read_alignment() const override;
+    bool has_direct_io() const override;
 private:
     struct impl;
     std::unique_ptr<impl> pimpl;
@@ -76,8 +76,8 @@ template <bool Writable> struct llama_file_buffer : public llama_file {
 
     void seek(size_t offset, int whence) const override;
 
-    void     read_raw(void * ptr, size_t len) override;
-    uint32_t read_u32() override;
+    void     read_raw(void * ptr, size_t len) const override;
+    uint32_t read_u32() const override;
 
     /// @throw std::runtime_error if the buffer is read-only
     void write_raw(const void * ptr, size_t len) const override;

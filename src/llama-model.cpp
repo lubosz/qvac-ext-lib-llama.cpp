@@ -2777,6 +2777,12 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
     max_n_tensors += n_layer*2; // duplicated rope freq tensors
     const size_t ctx_size = ggml_tensor_overhead()*max_n_tensors;
 
+    // define a comparator for the buft -> ctx map to ensure that the order is well-defined:
+    struct ggml_backend_buft_comparator {
+        bool operator()(const ggml_backend_buffer_type_t & lhs, const ggml_backend_buffer_type_t & rhs) const {
+            return strcmp(ggml_backend_buft_name(lhs), ggml_backend_buft_name(rhs)) < 0;
+        }
+    };
     std::map<ggml_backend_buffer_type_t, ggml_context_ptr, ggml_backend_buft_comparator> ctx_map;
 
     auto ctx_for_buft = [&](ggml_backend_buffer_type_t buft) -> ggml_context * {
@@ -7748,20 +7754,14 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
 }
 
 bool llama_model::create_split_backend_buffers(
-    const uint16_t idx, std::map<std::pair<ggml_backend_buffer_type_t, uint16_t>, ggml_context_ptr> & ctx_split_map,
+    const uint16_t idx, std::map<std::pair<ggml_backend_buffer_type_t, uint16_t>, ggml_context *> & ctx_split_map,
     llama_model_loader & ml, const bool use_mmap_buffer, const bool use_mlock, const int32_t n_gpu_layers) {
     // Extract contexts for the given split index from ctx_split_map into a new map
-    std::map<ggml_backend_buffer_type_t, ggml_context_ptr, ggml_backend_buft_comparator> ctx_map;
-    for (auto it = ctx_split_map.begin(); it != ctx_split_map.end();) {
-        const auto & [buft_split_idx, ctx_ptr] = *it;
+    std::map<ggml_backend_buffer_type_t, ggml_context *> ctx_map;
+    for (const auto & [buft_split_idx, ctx] : ctx_split_map) {
         const auto & [buft, split_idx] = buft_split_idx;
         if (split_idx == idx) {
-            // Move the context from ctx_split_map to ctx_map
-            ctx_map[buft] = std::move(it->second);
-            // Remove from ctx_split_map since ownership has been transferred
-            it = ctx_split_map.erase(it);
-        } else {
-            ++it;
+            ctx_map[buft] = ctx;
         }
     }
 
@@ -7770,20 +7770,14 @@ bool llama_model::create_split_backend_buffers(
     constexpr bool do_print_backend_buffers_info = false;
     const bool     creation_success = create_backend_buffers(split_data_size, ctx_map, ml, use_mmap_buffer, use_mlock,
                                                              n_gpu_layers, do_print_backend_buffers_info);
-    
-    // Note: create_backend_buffers moves the contexts into ctxs_bufs, taking ownership
-    // The contexts in ctx_map are now empty after the move, which is expected
 
     return creation_success;
 }
 
-bool llama_model::create_backend_buffers(std::size_t size_data,
-                                         std::map<ggml_backend_buffer_type_t, ggml_context_ptr, ggml_backend_buft_comparator> & ctx_map,
-                                         llama_model_loader & ml,
-                                         const bool use_mmap_buffer,
-                                         const bool use_mlock,
-                                         const int32_t n_gpu_layers,
-                                         bool do_print_backend_buffers_info) {
+bool llama_model::create_backend_buffers(std::size_t                                                  size_data,
+                                         const std::map<ggml_backend_buffer_type_t, ggml_context *> & ctx_map,
+                                         llama_model_loader & ml, const bool use_mmap_buffer, const bool use_mlock,
+                                         const int32_t n_gpu_layers, bool do_print_backend_buffers_info) {
     // create the backend buffers
     std::vector<std::pair<ggml_context *, llama_buf_map>> ctx_buf_maps;
     ctx_buf_maps.reserve(ctx_map.size());
@@ -7885,10 +7879,6 @@ bool llama_model::create_backend_buffers(std::size_t size_data,
         }
     }
 
-    if (ml.no_alloc) {
-        return true;
-    }
-
     // load tensor data
     for (auto & [ctx, buf_map] : ctx_buf_maps) {
         if (!ml.load_all_data(size_data, ctx, buf_map, use_mlock ? &pimpl->mlock_mmaps : NULL, params.progress_callback, params.progress_callback_user_data)) {
@@ -7929,6 +7919,32 @@ void llama_model::print_backend_buffers_info(const int32_t n_gpu_layers) {
                 __func__, ggml_backend_buffer_name(buf.get()), ggml_backend_buffer_get_size(buf.get()) / 1024.0 / 1024.0);
         }
     }
+
+    // populate tensors_by_name
+    for (auto & [ctx, _] : pimpl->ctxs_bufs) {
+        for (auto * cur = ggml_get_first_tensor(ctx.get()); cur != NULL; cur = ggml_get_next_tensor(ctx.get(), cur)) {
+            tensors_by_name.emplace_back(ggml_get_name(cur), cur);
+        }
+    }
+
+    if (ml.no_alloc) {
+        return true;
+    }
+
+    // load tensor data
+    for (auto & [ctx, buf_map] : ctx_buf_maps) {
+        if (!ml.load_all_data(ctx, buf_map, use_mlock ? &pimpl->mlock_mmaps : NULL, params.progress_callback, params.progress_callback_user_data)) {
+            return false;
+        }
+    }
+
+    if (use_mmap_buffer) {
+        for (auto & mapping : ml.mappings) {
+            pimpl->mappings.emplace_back(std::move(mapping));
+        }
+    }
+
+    return true;
 }
 
 std::string llama_model::arch_name() const {
