@@ -6447,7 +6447,7 @@ static vk_matmul_pipeline ggml_vk_get_mul_mat_mat_id_pipeline(ggml_backend_vk_co
     vk_matmul_pipeline2& mmp = ctx->device->pipeline_dequant_mul_mat_mat_id[src0_type];
     // XXX TODO 'prec' is not actually allowed in mul_mat_id.
     bool prefer_fp16acc = ctx->device->fp16 /*&& prec == GGML_PREC_DEFAULT*/;
-    
+
     if (src0_type == GGML_TYPE_TQ1_0 || src0_type == GGML_TYPE_TQ2_0) {
         prefer_fp16acc = false;
     }
@@ -14965,6 +14965,17 @@ static ggml_status ggml_backend_vk_graph_compute(ggml_backend_t backend, ggml_cg
     uint64_t mul_mat_bytes = 0;
     uint64_t total_mul_mat_bytes = 0;
     uint64_t mul_mat_bytes_per_submit = std::min(uint64_t(100*1000*1000), ctx->last_total_mul_mat_bytes / 40u);
+
+    // ARM Mali / Qualcomm Adreno: cap per-submit aggregate work to avoid the
+    // first-submit VK_ERROR_DEVICE_LOST seen on bert encoder graphs with large
+    // batched token counts.
+    if (ctx->device->vendor_id == VK_VENDOR_ID_ARM ||
+        ctx->device->vendor_id == VK_VENDOR_ID_QUALCOMM) {
+        nodes_per_submit = 25;
+        if (mul_mat_bytes_per_submit == 0) {
+            mul_mat_bytes_per_submit = 25 * 1000 * 1000;
+        }
+    }
     for (int i = 0; i < cgraph->n_nodes; i++) {
         if (first_node_in_batch) {
             submit_node_idx = i;
