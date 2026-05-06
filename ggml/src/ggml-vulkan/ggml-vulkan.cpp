@@ -3065,9 +3065,16 @@ static vk_fa_tuning_params get_fa_tuning_params_coopmat2(const vk_device& device
     return result;
 }
 
-static vk_fa_tuning_params get_fa_tuning_params(const vk_device& device, uint32_t hsk, uint32_t hsv, uint32_t n_rows, uint32_t n_kv, ggml_type kv_type, bool f32acc) {
-    FaCodePath path = device->coopmat2 ? FA_COOPMAT2 :
-                      device->coopmat1_fa_support ? FA_COOPMAT1 : FA_SCALAR;
+static vk_fa_tuning_params get_fa_tuning_params(const vk_device& device, uint32_t hsk, uint32_t hsv, uint32_t n_rows, uint32_t n_kv, ggml_type kv_type, bool f32acc, bool disable_coopmat = false) {
+    // ARM Mali / Qualcomm Adreno: when a context opts out of coopmat (set by the
+    // host based on cparams.training / arch), force the scalar FA path. The
+    // KHR_coopmat1 FA shaders trigger DeviceLost on bert encoder fused submits
+    // on Mali. Scoped to Mali/Adreno so coopmat2 NVIDIA inference is unaffected.
+    const bool force_mali_scalar =
+        disable_coopmat &&
+        (device->vendor_id == VK_VENDOR_ID_ARM || device->vendor_id == VK_VENDOR_ID_QUALCOMM);
+    FaCodePath path = (device->coopmat2 && !force_mali_scalar) ? FA_COOPMAT2 :
+                      (device->coopmat1_fa_support && !force_mali_scalar) ? FA_COOPMAT1 : FA_SCALAR;
 
     if (path == FA_COOPMAT1 && device->architecture == vk_device_architecture::NVIDIA_TURING) {
         // Nvidia compiler bug, see https://github.com/ggml-org/llama.cpp/pull/19075#issuecomment-3820716090
@@ -9425,7 +9432,7 @@ static void ggml_vk_flash_attn(ggml_backend_vk_context * ctx, vk_context& subctx
 
     // For scalar/coopmat1 FA, we can use the "large" size to accommodate qga.
     // For coopmat2 FA, we always use the small size (which is still pretty large for gqa).
-    vk_fa_tuning_params tuning_params = get_fa_tuning_params(ctx->device, HSK, HSV, 512, KV, k->type, f32acc);
+    vk_fa_tuning_params tuning_params = get_fa_tuning_params(ctx->device, HSK, HSV, 512, KV, k->type, f32acc, ctx->disable_coopmat);
     const uint32_t max_gqa = std::min(tuning_params.block_rows, 32u);
 
     if (N <= 8 && qk_ratio > 1 && qk_ratio <= max_gqa &&
@@ -9438,7 +9445,7 @@ static void ggml_vk_flash_attn(ggml_backend_vk_context * ctx, vk_context& subctx
         workgroups_y /= gqa_ratio;
     }
 
-    tuning_params = get_fa_tuning_params(ctx->device, HSK, HSV, N, KV, k->type, f32acc);
+    tuning_params = get_fa_tuning_params(ctx->device, HSK, HSV, N, KV, k->type, f32acc, ctx->disable_coopmat);
 
     const uint32_t q_stride = (uint32_t)(nbq1 / ggml_type_size(q->type));
     uint32_t k_stride = (uint32_t)(nbk1 / ggml_type_size(k->type));
