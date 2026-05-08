@@ -166,7 +166,7 @@ struct llama_adapter_lora * llama_lora_create_adapter(
         const struct llama_lora_training_params * params) {
 
     // Create a new LoRA adapter instance
-    llama_adapter_lora * adapter = new llama_adapter_lora();
+    llama_adapter_lora * adapter = new llama_adapter_lora(model);
     try {
         adapter->alpha = params->alpha;
 
